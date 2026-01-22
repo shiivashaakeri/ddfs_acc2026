@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDFS Implementation Plan - ACC 2026</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2980b9;
+            border-left: 4px solid #3498db;
+            padding-left: 10px;
+            margin-top: 30px;
+        }
+        h3 {
+            color: #27ae60;
+            margin-top: 20px;
+        }
+        h4 {
+            color: #8e44ad;
+            margin-top: 15px;
+        }
+        .module {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .file-structure {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            white-space: pre;
+            overflow-x: auto;
+        }
+        .equation {
+            background: #ffeaa7;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+        .params {
+            background: #dfe6e9;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .function {
+            background: #e8f6f3;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 3px solid #1abc9c;
+        }
+        .function pre {
+            margin: 5px 0;
+            white-space: pre-wrap;
+        }
+        .warning {
+            background: #fdcb6e;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .critical {
+            background: #fab1a0;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 3px solid #e74c3c;
+        }
+        ul {
+            margin: 10px 0;
+        }
+        li {
+            margin: 5px 0;
+        }
+        code {
+            background: #ecf0f1;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #bdc3c7;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background: #3498db;
+            color: white;
+        }
+        .dependency {
+            display: inline-block;
+            background: #9b59b6;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 3px;
+            margin: 2px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+
+<h1>🎯 DDFS Implementation Plan</h1>
+<p><strong>Paper:</strong> Robust Data-Driven Control for Nonlinear Systems Using their Digital Twins and Quadratic Funnels</p>
+<p><strong>Conference:</strong> ACC 2026</p>
+
+<!-- ============================================== -->
+<h2>📁 Project Structure</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<div class="file-structure">
+ddfs_acc2026/
+├── config/
+│   └── params.py              # All constants and parameters
+├── dynamics/
+│   ├── __init__.py
+│   ├── robot_arm.py           # 2-DoF robot arm dynamics
+│   ├── digital_twin.py        # Twin with mismatched params
+│   └── discretization.py      # RK4 integrator
+├── trajectory/
+│   ├── __init__.py
+│   ├── nominal_planner.py     # LQR-based nominal trajectory
+│   └── trajectory_utils.py    # Interpolation, bounds
+├── linearization/
+│   ├── __init__.py
+│   ├── jacobians.py           # Numerical Jacobian computation
+│   └── lipschitz.py           # L_J, L_r, gamma estimation
+├── data_driven/
+│   ├── __init__.py
+│   ├── data_collection.py     # Segment-wise data matrices
+│   ├── uncertainty_sets.py    # Σ_i and Σ_i^Δ construction
+│   └── beta_computation.py    # β_i bound calculation
+├── synthesis/
+│   ├── __init__.py
+│   ├── ellipsoid_bounds.py    # P_min, R_max computation (MVIE)
+│   ├── lmi_matrices.py        # S, N1, N2 matrix construction
+│   └── sdp_solver.py          # Main SDP (Eq. 22)
+├── control/
+│   ├── __init__.py
+│   ├── segmented_controller.py # Online Algorithm 1
+│   └── excitation.py          # Persistence of excitation
+├── simulation/
+│   ├── __init__.py
+│   ├── closed_loop.py         # Main simulation loop
+│   └── baseline.py            # Twin-only baseline
+├── visualization/
+│   ├── __init__.py
+│   ├── trajectory_plots.py    # Figure 4 recreation
+│   └── funnel_plots.py        # Ellipsoid visualization
+├── tests/
+│   ├── test_dynamics.py
+│   ├── test_linearization.py
+│   ├── test_sdp.py
+│   └── test_full_pipeline.py
+├── main.py                    # Entry point
+├── requirements.txt
+└── README.md
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>📦 Dependencies</h2>
+<!-- ============================================== -->
+
+<div class="module">
+    <span class="dependency">numpy</span>
+    <span class="dependency">scipy</span>
+    <span class="dependency">cvxpy</span>
+    <span class="dependency">matplotlib</span>
+    <span class="dependency">control</span>
+    <p style="margin-top: 15px;"><strong>requirements.txt:</strong></p>
+    <pre>numpy>=1.21.0
+scipy>=1.7.0
+cvxpy>=1.2.0
+matplotlib>=3.5.0
+control>=0.9.0</pre>
+</div>
+
+<!-- ============================================== -->
+<h2>1️⃣ Module: config/params.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Central configuration for all simulation parameters from the paper.</p>
+
+<h3>Contents</h3>
+
+<h4>1.1 Physical Parameters (Table I)</h4>
+<div class="params">
+<strong>Plant parameters:</strong>
+<ul>
+    <li>m1 = 1.00 kg, l1 = 0.70 m, lc1 = 0.35 m, I1 = 0.050 kg·m², b1 = 0.020 N·m·s/rad</li>
+    <li>m2 = 0.80 kg, l2 = 0.60 m, lc2 = 0.30 m, I2 = 0.040 kg·m², b2 = 0.020 N·m·s/rad</li>
+</ul>
+<strong>Twin parameters (mismatched):</strong>
+<ul>
+    <li>m1 = 0.95 kg, l1 = 0.73 m, lc1 = 0.365 m, I1 = 0.055 kg·m², b1 = 0.018 N·m·s/rad</li>
+    <li>m2 = 0.84 kg, l2 = 0.58 m, lc2 = 0.29 m, I2 = 0.038 kg·m², b2 = 0.022 N·m·s/rad</li>
+</ul>
+<strong>g = 9.81 m/s²</strong>
+</div>
+
+<h4>1.2 State/Input Constraints</h4>
+<div class="params">
+<ul>
+    <li>q1 ∈ [-5, 9] rad</li>
+    <li>q2 ∈ [-8, 8] rad</li>
+    <li>q1_dot ∈ [-8, 8] rad/s</li>
+    <li>q2_dot ∈ [-7, 7] rad/s</li>
+    <li>τ1, τ2 ∈ [-40, 40] N·m</li>
+</ul>
+</div>
+
+<h4>1.3 Simulation Parameters</h4>
+<div class="params">
+<ul>
+    <li>dt = 0.01 s (discretization step)</li>
+    <li>N = 600 steps (6 seconds total)</li>
+    <li>T = 100 steps per segment (1 second)</li>
+    <li>L = 60 steps (data window length)</li>
+</ul>
+</div>
+
+<h4>1.4 Synthesis Parameters</h4>
+<div class="params">
+<ul>
+    <li>α = 0.98 (Lyapunov decay rate)</li>
+    <li>μ = 1.02 (cross-segment growth bound)</li>
+    <li>ε_bar = 0.15 (excitation bound)</li>
+    <li>γ = 0.034 (mismatch bound)</li>
+    <li>L_J = 16.94 (Jacobian Lipschitz constant)</li>
+    <li>L_r = 0.074 (remainder Lipschitz constant)</li>
+    <li>C = L_J * v = 3.64</li>
+    <li>T_tilde = 199 (= 2T - 1)</li>
+</ul>
+</div>
+
+<h4>1.5 Initial/Goal States</h4>
+<div class="params">
+<ul>
+    <li>x_nom_0 = [0.28, -0.22, 0, 0]ᵀ (twin nominal start)</li>
+    <li>x_goal = [4.0, -1.0, 0, 0]ᵀ</li>
+    <li>u_goal = [-8.52, -2.37]ᵀ N·m</li>
+    <li>x_plant_0 = [2.28, 1.78, 1.0, -1.0]ᵀ (plant initial, perturbed)</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>2️⃣ Module: dynamics/robot_arm.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Implement the 2-DoF robot arm continuous-time dynamics.</p>
+
+<h3>Key Equations</h3>
+<div class="equation">
+ẋ = [q̇; M(q)⁻¹(τ - C(q,q̇)q̇ - G(q) - Bq̇)]
+</div>
+
+<h3>Functions to Implement</h3>
+
+<div class="function">
+<strong>class RobotArm2DoF:</strong>
+<ul>
+    <li><code>__init__(self, m1, m2, l1, l2, lc1, lc2, I1, I2, b1, b2, g=9.81)</code></li>
+    <li><code>mass_matrix(self, q) -> np.ndarray(2,2)</code>
+        <br>Compute M(q) with a, b, d terms</li>
+    <li><code>coriolis_matrix(self, q, qdot) -> np.ndarray(2,2)</code>
+        <br>Compute C(q, q̇)</li>
+    <li><code>gravity_vector(self, q) -> np.ndarray(2,)</code>
+        <br>Compute G(q)</li>
+    <li><code>friction_matrix(self) -> np.ndarray(2,2)</code>
+        <br>Return diagonal B matrix</li>
+    <li><code>dynamics(self, x, u) -> np.ndarray(4,)</code>
+        <br>Return ẋ = f(x, u) continuous-time</li>
+</ul>
+</div>
+
+<h3>Implementation Notes</h3>
+<ul>
+    <li>State: x = [q1, q2, q1_dot, q2_dot]ᵀ (4-dim)</li>
+    <li>Input: u = [τ1, τ2]ᵀ (2-dim)</li>
+    <li>Precompute a, b, d from constructor parameters</li>
+</ul>
+</div>
+
+<!-- ============================================== -->
+<h2>3️⃣ Module: dynamics/discretization.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>RK4 integration for discrete-time dynamics.</p>
+
+<div class="function">
+<strong>def rk4_step(f, x, u, dt):</strong>
+<pre>
+"""
+Single RK4 integration step.
+
+Args:
+    f: continuous dynamics function f(x, u) -> x_dot
+    x: current state (n,)
+    u: control input (m,)  [held constant over dt]
+    dt: time step
+
+Returns:
+    x_next: state at t + dt
+"""
+k1 = f(x, u)
+k2 = f(x + 0.5*dt*k1, u)
+k3 = f(x + 0.5*dt*k2, u)
+k4 = f(x + dt*k3, u)
+return x + (dt/6)*(k1 + 2*k2 + 2*k3 + k4)
+</pre>
+</div>
+
+<div class="function">
+<strong>class DiscreteSystem:</strong>
+<ul>
+    <li><code>__init__(self, continuous_dynamics, dt)</code></li>
+    <li><code>step(self, x, u) -> x_next</code>
+        <br>Wrapper around rk4_step</li>
+    <li><code>simulate(self, x0, u_sequence) -> x_trajectory</code>
+        <br>Roll out for N steps</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>4️⃣ Module: trajectory/nominal_planner.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Generate nominal trajectory on digital twin using LQR.</p>
+
+<h3>Approach</h3>
+<ol>
+    <li>Linearize twin at goal (x_goal, u_goal)</li>
+    <li>Compute infinite-horizon LQR gain K_lqr</li>
+    <li>Simulate twin from x_nom_0 using u = u_goal + K_lqr(x - x_goal)</li>
+    <li>Store {x̂_nom(k)}_{k=0}^N and {û_nom(k)}_{k=0}^{N-1}</li>
+</ol>
+
+<div class="function">
+<strong>def compute_nominal_trajectory(twin_system, x0, x_goal, u_goal, N, Q, R):</strong>
+<ul>
+    <li>Numerically linearize at (x_goal, u_goal) to get (A_lin, B_lin)</li>
+    <li>Use <code>control.dlqr(A_lin, B_lin, Q, R)</code> for K_lqr</li>
+    <li>Simulate: u(k) = u_goal + K_lqr @ (x(k) - x_goal)</li>
+    <li>Return x_nom (N+1, 4), u_nom (N, 2)</li>
+</ul>
+</div>
+
+<h3>Validation</h3>
+<ul>
+    <li>Check trajectory stays in X × U</li>
+    <li>Compute v = max_j ||[x̂_nom(j+1) - x̂_nom(j); û_nom(j+1) - û_nom(j)]|| for Assumption 3</li>
+</ul>
+</div>
+
+<!-- ============================================== -->
+<h2>5️⃣ Module: linearization/jacobians.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Compute Jacobians A(k), B(k) of the discrete-time plant at nominal points.</p>
+
+<h3>Method: Finite Differences</h3>
+<div class="function">
+<strong>def numerical_jacobian(f_discrete, x, u, eps=1e-6):</strong>
+<pre>
+"""
+Compute A = ∂f/∂x and B = ∂f/∂u at (x, u).
+
+Args:
+    f_discrete: x_next = f(x, u)
+    x: linearization point state (n,)
+    u: linearization point input (m,)
+    eps: finite difference step
+
+Returns:
+    A: (n, n) Jacobian w.r.t. state
+    B: (n, m) Jacobian w.r.t. input
+"""
+n, m = len(x), len(u)
+f0 = f_discrete(x, u)
+
+A = np.zeros((n, n))
+for i in range(n):
+    x_plus = x.copy(); x_plus[i] += eps
+    x_minus = x.copy(); x_minus[i] -= eps
+    A[:, i] = (f_discrete(x_plus, u) - f_discrete(x_minus, u)) / (2*eps)
+
+B = np.zeros((n, m))
+for j in range(m):
+    u_plus = u.copy(); u_plus[j] += eps
+    u_minus = u.copy(); u_minus[j] -= eps
+    B[:, j] = (f_discrete(x, u_plus) - f_discrete(x, u_minus)) / (2*eps)
+
+return A, B
+</pre>
+</div>
+
+<div class="function">
+<strong>def compute_jacobians_along_trajectory(f_discrete, x_nom, u_nom):</strong>
+<ul>
+    <li>Returns list of (A(k), B(k)) for k = 0, ..., N-1</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>6️⃣ Module: linearization/lipschitz.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Estimate constants γ, L_J, L_r from the paper.</p>
+
+<div class="critical">
+<strong>Reviewer 5's Main Concern:</strong> These bounds are hard to obtain for complex systems. Document estimation methods clearly.
+</div>
+
+<h3>Functions</h3>
+
+<div class="function">
+<strong>def estimate_gamma(plant, twin, x_nom, u_nom):</strong>
+<pre>
+"""
+Estimate γ = max ||Δ(x,u)|| = max ||f_plant(x,u) - f_twin(x,u)||
+along the nominal trajectory.
+
+Paper value: γ = 0.034
+"""
+gamma = 0.0
+for k in range(len(u_nom)):
+    x, u = x_nom[k], u_nom[k]
+    delta = plant.step(x, u) - twin.step(x, u)
+    gamma = max(gamma, np.linalg.norm(delta))
+return gamma
+</pre>
+</div>
+
+<div class="function">
+<strong>def estimate_L_J(plant, x_nom, u_nom, num_samples=100):</strong>
+<pre>
+"""
+Estimate Jacobian Lipschitz constant L_J via finite differences.
+
+L_J = max ||[A(k)-A(s), B(k)-B(s)]|| / (v * |k-s|)
+
+Paper value: L_J = 16.94
+"""
+# Sample pairs of points along trajectory
+# Compute Jacobian difference / distance
+# Return maximum ratio
+</pre>
+</div>
+
+<div class="function">
+<strong>def estimate_L_r(plant, x_nom, u_nom, radius=0.1):</strong>
+<pre>
+"""
+Estimate second-order remainder constant L_r.
+
+||r(k)|| ≤ L_r * ||[η; ξ]||²
+
+Paper value: L_r = 0.074
+"""
+# Sample perturbations around nominal
+# Compute ||f(x+η, u+ξ) - f(x,u) - A*η - B*ξ|| / ||[η;ξ]||²
+</pre>
+</div>
+
+<div class="function">
+<strong>def compute_trajectory_speed(x_nom, u_nom):</strong>
+<pre>
+"""
+Compute v = max_j ||[x̂(j+1)-x̂(j); û(j+1)-û(j)]||
+
+Used in C = L_J * v
+"""
+</pre>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>7️⃣ Module: data_driven/data_collection.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Manage segmented data collection (Section IV-A).</p>
+
+<h3>Key Equations (Eq. 10)</h3>
+<div class="equation">
+H_i  = [η(k_i^D), η(k_i^D+1), ..., η(k_{i+1}-1)]     (n × L)
+H_i⁺ = [η(k_i^D+1), η(k_i^D+2), ..., η(k_{i+1})]    (n × L)
+Ξ_i  = [ξ(k_i^D), ξ(k_i^D+1), ..., ξ(k_{i+1}-1)]   (m × L)
+</div>
+
+<div class="function">
+<strong>class SegmentDataCollector:</strong>
+<pre>
+def __init__(self, T, L, n, m):
+    """
+    T: segment length (100)
+    L: data window length (60)
+    n: state dimension (4)
+    m: input dimension (2)
+    """
+    self.T = T
+    self.L = L
+    self.n = n
+    self.m = m
+    
+def get_segment_indices(self, i):
+    """Return T_i = {k_i, ..., k_{i+1}-1}"""
+    k_i = i * self.T
+    return range(k_i, k_i + self.T)
+
+def get_data_window_indices(self, i):
+    """Return T_i^D = {k_{i+1}-L, ..., k_{i+1}-1}"""
+    k_i_plus_1 = (i + 1) * self.T
+    k_i_D = k_i_plus_1 - self.L
+    return range(k_i_D, k_i_plus_1)
+
+def is_in_data_window(self, k, i):
+    """Check if k ∈ T_i^D"""
+    return k in self.get_data_window_indices(i)
+
+def build_data_matrices(self, eta_history, xi_history, i):
+    """
+    Build H_i, H_i^+, Ξ_i from logged data.
+    
+    Args:
+        eta_history: dict {k: η(k)}
+        xi_history: dict {k: ξ(k)}
+        i: segment index
+        
+    Returns:
+        H_i: (n, L)
+        H_i_plus: (n, L)
+        Xi_i: (m, L)
+    """
+    window = list(self.get_data_window_indices(i))
+    
+    H_i = np.column_stack([eta_history[k] for k in window])
+    H_i_plus = np.column_stack([eta_history[k+1] for k in window])
+    Xi_i = np.column_stack([xi_history[k] for k in window])
+    
+    return H_i, H_i_plus, Xi_i
+
+def check_rank_condition(self, H_i, Xi_i):
+    """
+    Verify rank([H_i; Ξ_i]) = n + m (Eq. 11)
+    """
+    stacked = np.vstack([H_i, Xi_i])
+    return np.linalg.matrix_rank(stacked) == self.n + self.m
+</pre>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>8️⃣ Module: data_driven/beta_computation.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Compute the disturbance energy bound β_i (Eq. 16).</p>
+
+<div class="equation">
+β_i = Σ_{k ∈ T_i^D} (C|k-k_i| ||[η(k); ξ(k)]|| + γ + L_r ||[η(k); ξ(k)]||²)²
+</div>
+
+<div class="function">
+<strong>def compute_beta(eta_history, xi_history, data_window, k_i, C, gamma, L_r):</strong>
+<pre>
+"""
+Compute β_i from Eq. 16.
+
+Args:
+    eta_history: dict of η(k) values
+    xi_history: dict of ξ(k) values
+    data_window: indices in T_i^D
+    k_i: start of segment i
+    C, gamma, L_r: Lipschitz constants
+    
+Returns:
+    beta_i: scalar bound
+"""
+beta_i = 0.0
+
+for k in data_window:
+    eta_k = eta_history[k]
+    xi_k = xi_history[k]
+    z_k = np.concatenate([eta_k, xi_k])
+    norm_z = np.linalg.norm(z_k)
+    
+    term = C * abs(k - k_i) * norm_z + gamma + L_r * norm_z**2
+    beta_i += term**2
+
+return beta_i
+</pre>
+</div>
+
+<div class="critical">
+<strong>Numerical Stability:</strong> β_i can become large. Consider:
+<ul>
+    <li>Logging intermediate values for debugging</li>
+    <li>Checking if β_i is reasonable (not causing LMI infeasibility)</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>9️⃣ Module: synthesis/ellipsoid_bounds.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Compute P_min(k), R_max(k) via maximum-volume inscribed ellipsoid (MVIE).</p>
+
+<h3>State Constraint MVIE (Remark 2)</h3>
+<div class="equation">
+P_min(k)^{-1/2} = argmax_{Z≻0} log det(Z)
+s.t. ||Z a_j^x(k)||_2 ≤ b_j^x(k)  ∀j
+     0 ⪯ Z ⪯ x_max I
+</div>
+
+<div class="function">
+<strong>def compute_mvie_state(x_nom_k, x_bounds):</strong>
+<pre>
+"""
+Compute P_min(k) for state constraints.
+
+Args:
+    x_nom_k: nominal state at time k (4,)
+    x_bounds: dict with 'lower' and 'upper' arrays (4,) each
+    
+Returns:
+    P_min_k: (4, 4) positive definite matrix
+"""
+n = 4
+
+# Deviation constraints: -x_nom + x_lower ≤ η ≤ x_upper - x_nom
+# In form a_j^T η ≤ b_j:
+#   η_i ≤ x_upper_i - x_nom_i  =>  e_i^T η ≤ (x_upper - x_nom)_i
+#  -η_i ≤ x_nom_i - x_lower_i  => -e_i^T η ≤ (x_nom - x_lower)_i
+
+A_ineq = np.vstack([np.eye(n), -np.eye(n)])  # (2n, n)
+b_ineq = np.concatenate([
+    x_bounds['upper'] - x_nom_k,
+    x_nom_k - x_bounds['lower']
+])  # (2n,)
+
+# Solve MVIE via CVXPY
+Z = cp.Variable((n, n), symmetric=True)
+constraints = [Z >> 0]
+
+for i in range(2*n):
+    a_i = A_ineq[i]
+    b_i = b_ineq[i]
+    constraints.append(cp.norm(Z @ a_i, 2) <= b_i)
+
+prob = cp.Problem(cp.Maximize(cp.log_det(Z)), constraints)
+prob.solve(solver=cp.SCS)
+
+Z_opt = Z.value
+P_min_k = np.linalg.inv(Z_opt @ Z_opt)  # P = Z^{-2}
+
+return P_min_k
+</pre>
+</div>
+
+<div class="warning">
+<strong>Paper values at k=0:</strong>
+<ul>
+    <li>P_min^{1/2}(0) = diag(0.19, 0.12, 0.12, 0.14)</li>
+    <li>R_max^{1/2}(0) = diag(28.56, 37.62)</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>🔟 Module: synthesis/lmi_matrices.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Construct the LMI matrices S, Ñ₁, Ñ₂ from Theorem 1.</p>
+
+<h3>Matrix S(P_i, L_i, ν) - 6×6 blocks</h3>
+<div class="equation">
+S(P_i, L_i, ν) = 
+[αP_i - νI,  0,     0,     0,     0,     0    ]
+[0,         -P_i, -L_i^T, -P_i, -L_i^T,  0    ]
+[0,         -L_i,  0,     -L_i,  0,      L_i  ]
+[0,         -P_i, -L_i^T, -P_i, -L_i^T,  0    ]
+[0,         -L_i,  0,     -L_i,  0,      L_i  ]
+[0,          0,    L_i^T,  0,    L_i^T,  P_i  ]
+</div>
+
+<div class="function">
+<strong>def build_S_matrix(P, L, nu, alpha, n, m):</strong>
+<pre>
+"""
+Build 6-block S matrix.
+
+Block dimensions: [n, n, m, n, m, n] = [4, 4, 2, 4, 2, 4] = 20 total
+
+Args:
+    P: (n, n) symmetric positive definite
+    L: (m, n) = K @ P
+    nu: scalar slack
+    alpha: decay rate (0.98)
+    
+Returns:
+    S: (20, 20) symmetric matrix
+"""
+total_dim = 4*n + 2*m  # 20 for our case
+S = np.zeros((total_dim, total_dim))
+
+# Block indices: [0, 4, 8, 10, 14, 16, 20]
+idx = np.cumsum([0, n, n, m, n, m, n])
+
+# (1,1) block: αP - νI
+S[idx[0]:idx[1], idx[0]:idx[1]] = alpha * P - nu * np.eye(n)
+
+# Fill remaining blocks according to the pattern...
+# (2,2): -P
+S[idx[1]:idx[2], idx[1]:idx[2]] = -P
+# (2,3): -L^T
+S[idx[1]:idx[2], idx[2]:idx[3]] = -L.T
+# ... continue for all 36 block positions
+
+return S
+</pre>
+</div>
+
+<h3>Matrix Ñ₁ (Data Constraint)</h3>
+<div class="equation">
+N₁ = S_W M_W S_W^T where:
+  S_W^T = [I, H_i^+^T; 0, -H_i^T; 0, -Ξ_i^T; 0, 0; 0, 0]
+  M_W = diag(β_{i-1} I, -I)
+
+Ñ₁ = [N₁, 0; 0, 0]  (padded to 6-block size)
+</div>
+
+<h3>Matrix Ñ₂ (Jacobian Variation Constraint)</h3>
+<div class="equation">
+N₂ = S_Δ^T M_Δ S_Δ where:
+  S_Δ = [I, 0, 0, 0, 0; 0, 0, 0, I, 0; 0, 0, 0, 0, I]
+  M_Δ = diag(C²T̃²I_n, -I_n, -I_m)
+
+Ñ₂ = [N₂, 0; 0, 0]  (padded to 6-block size)
+</div>
+
+<div class="critical">
+<strong>Dimension Check:</strong>
+<ul>
+    <li>n = 4 (state dim)</li>
+    <li>m = 2 (input dim)</li>
+    <li>Total LMI size: 4n + 2m = 20</li>
+    <li>Block structure: [n, n, m, n, m, n] = [4, 4, 2, 4, 2, 4]</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>1️⃣1️⃣ Module: synthesis/sdp_solver.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Solve the main SDP (Eq. 22) to get (P_i, K_i).</p>
+
+<h3>Optimization Problem</h3>
+<div class="equation">
+maximize    log det(P_i)
+subject to  P_i ≻ 0
+            λ₁ ≥ 0, λ₂ ≥ 0
+            S(P_i, L_i, ν) - λ₁ Ñ₁ - λ₂ Ñ₂ ⪰ 0
+            P_i ⪰ P_min,i
+            [R_max,i, L_i; L_i^T, P_i] ⪰ 0
+</div>
+
+<div class="function">
+<strong>def solve_funnel_sdp(H, H_plus, Xi, beta, P_min, R_max, alpha, C, T_tilde, P_prev=None, mu=1.02):</strong>
+<pre>
+"""
+Solve the main SDP for segment i.
+
+Args:
+    H, H_plus, Xi: data matrices from segment i-1
+    beta: disturbance bound from segment i-1
+    P_min, R_max: feasibility ellipsoid bounds for segment i
+    alpha: decay rate (0.98)
+    C, T_tilde: Jacobian variation constants
+    P_prev: previous P matrix (for P_i ⪯ μ P_{i-1} constraint)
+    mu: growth bound (1.02)
+    
+Returns:
+    P_i: (n, n) optimal P matrix
+    K_i: (m, n) feedback gain = L_i @ inv(P_i)
+    success: bool
+"""
+n, m = 4, 2
+
+# Decision variables
+P = cp.Variable((n, n), symmetric=True)
+L = cp.Variable((m, n))
+lambda1 = cp.Variable(nonneg=True)
+lambda2 = cp.Variable(nonneg=True)
+nu = cp.Variable(pos=True)
+
+constraints = [
+    P >> 0,
+    P >> P_min,
+]
+
+# Schur complement for R_max constraint
+schur_block = cp.bmat([[R_max, L], [L.T, P]])
+constraints.append(schur_block >> 0)
+
+# Main stability LMI: S - λ₁ Ñ₁ - λ₂ Ñ₂ ≥ 0
+# Build S, N1_tilde, N2_tilde with CVXPY expressions
+# (Requires careful construction - see lmi_matrices.py)
+
+# Cross-segment growth (if not first segment)
+if P_prev is not None:
+    constraints.append(P << mu * P_prev)
+
+# Objective: maximize log det(P)
+objective = cp.Maximize(cp.log_det(P))
+
+prob = cp.Problem(objective, constraints)
+prob.solve(solver=cp.SCS, verbose=False)
+
+if prob.status in ['optimal', 'optimal_inaccurate']:
+    P_opt = P.value
+    L_opt = L.value
+    K_opt = L_opt @ np.linalg.inv(P_opt)
+    return P_opt, K_opt, True
+else:
+    return None, None, False
+</pre>
+</div>
+
+<div class="critical">
+<strong>CVXPY Implementation Note:</strong>
+The main challenge is constructing S(P, L, ν) - λ₁ Ñ₁ - λ₂ Ñ₂ as a valid CVXPY expression. You need to:
+<ol>
+    <li>Build S block-by-block using cp.bmat()</li>
+    <li>Ñ₁ depends on data (H, H_plus, Xi, beta) - these are constants</li>
+    <li>Ñ₂ depends only on (C, T_tilde) - also constants</li>
+    <li>The combination with λ₁, λ₂ is affine in the decision variables</li>
+</ol>
+</div>
+
+<div class="warning">
+<strong>Solver Choice:</strong> Paper uses SCS. Consider also MOSEK (faster, commercial) or CVXOPT.
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>1️⃣2️⃣ Module: control/segmented_controller.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Implement Algorithm 1: Online Data-Driven Funnel Control.</p>
+
+<div class="function">
+<strong>class SegmentedFunnelController:</strong>
+<pre>
+def __init__(self, plant, twin, x_nom, u_nom, params):
+    """
+    Args:
+        plant: DiscreteSystem for plant
+        twin: DiscreteSystem for twin
+        x_nom: (N+1, n) nominal trajectory
+        u_nom: (N, m) nominal inputs
+        params: dict with T, L, alpha, mu, eps_bar, etc.
+    """
+    # Storage
+    self.P_history = []
+    self.K_history = []
+    self.eta_log = {}
+    self.xi_log = {}
+    
+def compute_control(self, k, x):
+    """Compute u(k) given current state x(k)."""
+    eta = x - self.x_nom[k]
+    xi = self.K_current @ eta
+    
+    # Add excitation if in data window
+    if self._in_data_window(k):
+        epsilon = self._generate_excitation()
+        xi = xi + epsilon
+    
+    u = self.u_nom[k] + xi
+    
+    # Log
+    self.eta_log[k] = eta
+    self.xi_log[k] = xi
+    
+    return u
+
+def end_of_segment_update(self, k):
+    """Called at segment boundary to synthesize next controller."""
+    # Build data matrices
+    # Compute beta
+    # Solve SDP
+    # Update P_current, K_current
+</pre>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>1️⃣3️⃣ Module: simulation/closed_loop.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Main simulation loop.</p>
+
+<div class="function">
+<strong>def run_simulation(plant, twin, x_nom, u_nom, x0_plant, params):</strong>
+<pre>
+"""
+Run full closed-loop simulation.
+
+Returns:
+    results: dict with trajectories, funnels, metrics
+"""
+N = params['N']
+T = params['T']
+
+# Initialize controller
+controller = SegmentedFunnelController(...)
+K0, P0 = design_initial_controller(...)
+controller.initialize(K0, P0)
+
+# Storage
+x_traj = np.zeros((N+1, 4))
+u_traj = np.zeros((N, 2))
+x_traj[0] = x0_plant
+
+# Main loop
+x = x0_plant.copy()
+for k in range(N):
+    u = controller.compute_control(k, x)
+    u = np.clip(u, params['u_min'], params['u_max'])
+    x_next = plant.step(x, u)
+    
+    u_traj[k] = u
+    x_traj[k+1] = x_next
+    
+    # End of segment?
+    if (k + 1) % T == 0 and k + 1 < N:
+        controller.eta_log[k+1] = x_next - x_nom[k+1]
+        controller.end_of_segment_update(k + 1)
+    
+    x = x_next
+
+return results
+</pre>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>1️⃣4️⃣ Module: visualization/trajectory_plots.py</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Purpose</h3>
+<p>Recreate Figure 4 from the paper.</p>
+
+<div class="function">
+<strong>def plot_tracking_results(results, baseline_results, params):</strong>
+<pre>
+"""
+Create 4-panel figure showing q1, q2, q1_dot, q2_dot.
+
+Elements:
+- Black: nominal trajectory (twin)
+- Red: proposed data-driven controller (plant)
+- Gray dashed: baseline (twin controller on plant)
+- Gray shaded: certified funnels
+- Green: state constraints
+"""
+fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+
+state_names = ['$q_1$', '$q_2$', '$\\dot{q}_1$', '$\\dot{q}_2$']
+state_bounds = [(-5, 9), (-8, 8), (-8, 8), (-7, 7)]
+
+for i, ax in enumerate(axes.flat):
+    # Nominal (black)
+    ax.plot(t, results['x_nominal'][:, i], 'k-', label='nominal')
+    
+    # Proposed (red)
+    ax.plot(t, results['x_trajectory'][:, i], 'r-', label='proposed')
+    
+    # Baseline (gray dashed)
+    ax.plot(t, baseline_results[0][:, i], '--', color='gray')
+    
+    # Constraints (green)
+    ax.axhline(state_bounds[i][0], color='green', alpha=0.5)
+    ax.axhline(state_bounds[i][1], color='green', alpha=0.5)
+    
+    # Funnel bounds (gray shaded)
+    # ...
+
+return fig
+</pre>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>🧪 Testing Strategy</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Unit Tests</h3>
+<table>
+    <tr>
+        <th>Test File</th>
+        <th>What to Test</th>
+    </tr>
+    <tr>
+        <td>test_dynamics.py</td>
+        <td>M(q) positive definite; RK4 accuracy; plant-twin mismatch ≤ γ</td>
+    </tr>
+    <tr>
+        <td>test_linearization.py</td>
+        <td>Jacobian accuracy; Lipschitz estimates positive</td>
+    </tr>
+    <tr>
+        <td>test_sdp.py</td>
+        <td>LMI dimensions; S symmetry; SDP feasibility; K stabilizes</td>
+    </tr>
+    <tr>
+        <td>test_full_pipeline.py</td>
+        <td>Segment transitions; rank condition; constraints; terminal deviation ~4.7e-2</td>
+    </tr>
+</table>
+</div>
+
+<!-- ============================================== -->
+<h2>⚠️ Known Challenges</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<div class="critical">
+<strong>Challenge 1: SDP Construction in CVXPY</strong>
+<p>Building S(P, L, ν) with CVXPY variables is tricky. Use <code>cp.bmat()</code> carefully.</p>
+</div>
+
+<div class="critical">
+<strong>Challenge 2: Numerical Conditioning</strong>
+<p>β_i can be large, making LMI ill-conditioned. Try scaling or different solvers.</p>
+</div>
+
+<div class="warning">
+<strong>Debugging Tips:</strong>
+<ul>
+    <li>Start with T=20, L=10 for faster iteration</li>
+    <li>Verify data matrices have correct rank before SDP</li>
+    <li>Log β_i values - they should decrease as tracking improves</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================================== -->
+<h2>📊 Expected Outputs</h2>
+<!-- ============================================== -->
+
+<div class="module">
+<h3>Paper Benchmarks to Match</h3>
+<table>
+    <tr><th>Metric</th><th>Expected Value</th></tr>
+    <tr><td>γ (mismatch bound)</td><td>0.034</td></tr>
+    <tr><td>L_J (Jacobian Lipschitz)</td><td>16.94</td></tr>
+    <tr><td>L_r (remainder Lipschitz)</td><td>0.074</td></tr>
+    <tr><td>C = L_J * v</td><td>3.64</td></tr>
+    <tr><td>Terminal deviation ||η(N)||</td><td>4.725 × 10⁻²</td></tr>
+    <tr><td>Number of segments</td><td>6 (= 600/100)</td></tr>
+</table>
+</div>
+
+<hr>
+<p style="text-align: center; color: #666;">
+    <em>Implementation Plan for ACC 2026 Paper - Version 1.0</em><br>
+    <em>Ready for coding phase</em>
+</p>
+
+</body>
+</html>

@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDFS Build Plan - Step by Step</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.7;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+        }
+        .phase {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            border-left: 5px solid #667eea;
+        }
+        .phase-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .phase-number {
+            background: #667eea;
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        .phase-title {
+            color: #2c3e50;
+            font-size: 1.4em;
+            font-weight: bold;
+        }
+        .phase-subtitle {
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+        .step {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            border: 1px solid #e0e0e0;
+        }
+        .step-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .step-number {
+            background: #27ae60;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            margin-right: 10px;
+        }
+        .step-file {
+            font-family: 'Courier New', monospace;
+            background: #ecf0f1;
+            padding: 3px 8px;
+            border-radius: 4px;
+            color: #8e44ad;
+        }
+        .dependencies {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 5px;
+            padding: 8px 12px;
+            margin: 10px 0;
+            font-size: 0.9em;
+        }
+        .dependencies::before {
+            content: "📦 Depends on: ";
+            font-weight: bold;
+        }
+        .checkpoint {
+            background: #d4edda;
+            border: 1px solid #28a745;
+            border-radius: 5px;
+            padding: 10px 15px;
+            margin: 15px 0;
+        }
+        .checkpoint::before {
+            content: "✅ CHECKPOINT: ";
+            font-weight: bold;
+            color: #28a745;
+        }
+        .test-cmd {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+        }
+        .functions {
+            background: #e8f6f3;
+            border-left: 3px solid #1abc9c;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .functions code {
+            display: block;
+            margin: 3px 0;
+            font-family: 'Courier New', monospace;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .critical {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .timeline {
+            display: flex;
+            justify-content: space-between;
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .timeline-item {
+            text-align: center;
+            flex: 1;
+        }
+        .timeline-phase {
+            font-weight: bold;
+            color: #667eea;
+        }
+        .timeline-time {
+            font-size: 0.85em;
+            color: #7f8c8d;
+        }
+        ul {
+            margin: 5px 0;
+            padding-left: 20px;
+        }
+        li {
+            margin: 3px 0;
+        }
+        .output-expected {
+            background: #e3f2fd;
+            border-left: 3px solid #2196f3;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 0.9em;
+        }
+        .code-snippet {
+            background: #263238;
+            color: #aed581;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .summary-table th, .summary-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        .summary-table th {
+            background: #667eea;
+            color: white;
+        }
+        .summary-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+<h1>🔨 DDFS Implementation Build Plan</h1>
+
+<p style="text-align: center; color: #7f8c8d;">
+    Step-by-step guide to building the ACC 2026 paper code<br>
+    <strong>Total: 7 Phases, 22 Steps</strong>
+</p>
+
+<!-- Timeline Overview -->
+<div class="timeline">
+    <div class="timeline-item">
+        <div class="timeline-phase">Phase 1</div>
+        <div class="timeline-time">Foundation</div>
+    </div>
+    <div class="timeline-item">
+        <div class="timeline-phase">Phase 2</div>
+        <div class="timeline-time">Dynamics</div>
+    </div>
+    <div class="timeline-item">
+        <div class="timeline-phase">Phase 3</div>
+        <div class="timeline-time">Trajectory</div>
+    </div>
+    <div class="timeline-item">
+        <div class="timeline-phase">Phase 4</div>
+        <div class="timeline-time">Linearization</div>
+    </div>
+    <div class="timeline-item">
+        <div class="timeline-phase">Phase 5</div>
+        <div class="timeline-time">Data-Driven</div>
+    </div>
+    <div class="timeline-item">
+        <div class="timeline-phase">Phase 6</div>
+        <div class="timeline-time">Synthesis</div>
+    </div>
+    <div class="timeline-item">
+        <div class="timeline-phase">Phase 7</div>
+        <div class="timeline-time">Integration</div>
+    </div>
+</div>
+
+<!-- ============================================== -->
+<!-- PHASE 1 -->
+<!-- ============================================== -->
+<div class="phase">
+    <div class="phase-header">
+        <div class="phase-number">1</div>
+        <div>
+            <div class="phase-title">Foundation & Configuration</div>
+            <div class="phase-subtitle">Set up project structure and all parameters</div>
+        </div>
+    </div>
+
+    <!-- Step 1.1 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 1.1</span>
+            <span class="step-file">requirements.txt</span>
+        </div>
+        <p>Create dependencies file.</p>
+        <div class="code-snippet">numpy>=1.21.0
+scipy>=1.7.0
+cvxpy>=1.2.0
+matplotlib>=3.5.0
+control>=0.9.0</div>
+        <div class="test-cmd">$ pip install -r requirements.txt</div>
+    </div>
+
+    <!-- Step 1.2 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 1.2</span>
+            <span class="step-file">config/params.py</span>
+        </div>
+        <p>Define ALL parameters from the paper in one place.</p>
+        <div class="functions">
+            <strong>Contents:</strong>
+            <code>PLANT_PARAMS = dict(m1=1.00, m2=0.80, l1=0.70, ...)</code>
+            <code>TWIN_PARAMS = dict(m1=0.95, m2=0.84, l1=0.73, ...)</code>
+            <code>STATE_BOUNDS = dict(q1=(-5,9), q2=(-8,8), ...)</code>
+            <code>INPUT_BOUNDS = dict(tau1=(-40,40), tau2=(-40,40))</code>
+            <code>SIM_PARAMS = dict(dt=0.01, N=600, T=100, L=60)</code>
+            <code>SYNTH_PARAMS = dict(alpha=0.98, mu=1.02, eps_bar=0.15)</code>
+            <code>LIPSCHITZ = dict(gamma=0.034, L_J=16.94, L_r=0.074)</code>
+            <code>INITIAL_STATES = dict(x_nom_0=[...], x_goal=[...], x_plant_0=[...])</code>
+        </div>
+    </div>
+
+    <!-- Step 1.3 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 1.3</span>
+            <span class="step-file">All __init__.py files</span>
+        </div>
+        <p>Create empty __init__.py in each package folder.</p>
+        <div class="code-snippet">ddfs_acc2026/
+├── config/__init__.py
+├── dynamics/__init__.py
+├── trajectory/__init__.py
+├── linearization/__init__.py
+├── data_driven/__init__.py
+├── synthesis/__init__.py
+├── control/__init__.py
+├── simulation/__init__.py
+├── visualization/__init__.py
+└── tests/__init__.py</div>
+    </div>
+
+    <div class="checkpoint">
+        Verify: <code>from config.params import PLANT_PARAMS</code> works without errors.
+    </div>
+</div>
+
+<!-- ============================================== -->
+<!-- PHASE 2 -->
+<!-- ============================================== -->
+<div class="phase">
+    <div class="phase-header">
+        <div class="phase-number">2</div>
+        <div>
+            <div class="phase-title">Dynamics Module</div>
+            <div class="phase-subtitle">Robot arm physics + discretization</div>
+        </div>
+    </div>
+
+    <!-- Step 2.1 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 2.1</span>
+            <span class="step-file">dynamics/robot_arm.py</span>
+        </div>
+        <div class="dependencies">config/params.py</div>
+        <p>Implement continuous-time 2-DoF robot arm dynamics.</p>
+        <div class="functions">
+            <strong>Class: RobotArm2DoF</strong>
+            <code>__init__(self, m1, m2, l1, l2, lc1, lc2, I1, I2, b1, b2, g=9.81)</code>
+            <code>mass_matrix(self, q) → (2,2) M(q)</code>
+            <code>coriolis_matrix(self, q, qdot) → (2,2) C(q,q̇)</code>
+            <code>gravity_vector(self, q) → (2,) G(q)</code>
+            <code>dynamics(self, x, u) → (4,) ẋ = f(x,u)</code>
+        </div>
+        <div class="critical">
+            <strong>Key equations:</strong><br>
+            • a = I₁ + I₂ + m₁l²c₁ + m₂(l²₁ + l²c₂)<br>
+            • b = m₂l₁lc₂<br>
+            • d = I₂ + m₂l²c₂<br>
+            • M(q) = [[a+2b·cos(q₂), d+b·cos(q₂)], [d+b·cos(q₂), d]]
+        </div>
+    </div>
+
+    <!-- Step 2.2 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 2.2</span>
+            <span class="step-file">dynamics/discretization.py</span>
+        </div>
+        <div class="dependencies">dynamics/robot_arm.py</div>
+        <p>RK4 integrator for discrete-time simulation.</p>
+        <div class="functions">
+            <code>rk4_step(f, x, u, dt) → x_next</code>
+            <code>class DiscreteSystem:</code>
+            <code>    __init__(self, continuous_dynamics, dt)</code>
+            <code>    step(self, x, u) → x_next</code>
+            <code>    simulate(self, x0, u_sequence) → x_trajectory</code>
+        </div>
+    </div>
+
+    <!-- Step 2.3 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 2.3</span>
+            <span class="step-file">dynamics/digital_twin.py</span>
+        </div>
+        <div class="dependencies">dynamics/robot_arm.py, dynamics/discretization.py</div>
+        <p>Factory functions to create plant and twin systems.</p>
+        <div class="functions">
+            <code>create_plant() → DiscreteSystem</code>
+            <code>create_twin() → DiscreteSystem</code>
+            <code>compute_mismatch(plant, twin, x, u) → delta</code>
+        </div>
+    </div>
+
+    <!-- Step 2.4 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 2.4</span>
+            <span class="step-file">tests/test_dynamics.py</span>
+        </div>
+        <p>Test dynamics implementation.</p>
+        <div class="functions">
+            <code>test_mass_matrix_positive_definite()</code>
+            <code>test_rk4_accuracy()</code>
+            <code>test_plant_twin_mismatch_bounded()</code>
+            <code>test_equilibrium_point()</code>
+        </div>
+        <div class="test-cmd">$ python -m pytest tests/test_dynamics.py -v</div>
+    </div>
+
+    <div class="checkpoint">
+        Run simulation: Plant from x₀ with constant u for 100 steps. Verify states stay bounded and M(q) > 0 throughout.
+    </div>
+    
+    <div class="output-expected">
+        <strong>Expected:</strong> Plant-twin mismatch along nominal should be ≈ 0.034 (paper's γ value)
+    </div>
+</div>
+
+<!-- ============================================== -->
+<!-- PHASE 3 -->
+<!-- ============================================== -->
+<div class="phase">
+    <div class="phase-header">
+        <div class="phase-number">3</div>
+        <div>
+            <div class="phase-title">Trajectory Planning</div>
+            <div class="phase-subtitle">Generate nominal trajectory on digital twin</div>
+        </div>
+    </div>
+
+    <!-- Step 3.1 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 3.1</span>
+            <span class="step-file">trajectory/nominal_planner.py</span>
+        </div>
+        <div class="dependencies">dynamics/digital_twin.py, linearization/jacobians.py (partial)</div>
+        <p>Generate LQR-tracked nominal trajectory.</p>
+        <div class="functions">
+            <code>linearize_at_point(system, x, u) → (A, B)</code>
+            <code>compute_lqr_gain(A, B, Q, R) → K</code>
+            <code>generate_nominal_trajectory(twin, x0, x_goal, u_goal, N) → (x_nom, u_nom)</code>
+        </div>
+        <div class="warning">
+            <strong>Note:</strong> Use <code>control.dlqr()</code> for discrete LQR. Need to linearize twin at goal point first.
+        </div>
+    </div>
+
+    <!-- Step 3.2 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 3.2</span>
+            <span class="step-file">trajectory/trajectory_utils.py</span>
+        </div>
+        <div class="dependencies">trajectory/nominal_planner.py</div>
+        <p>Utility functions for trajectory analysis.</p>
+        <div class="functions">
+            <code>compute_trajectory_speed(x_nom, u_nom) → v  # max increment norm</code>
+            <code>check_constraints(x_traj, u_traj, bounds) → (valid, violations)</code>
+            <code>compute_deviations(x_actual, x_nom) → eta_history</code>
+        </div>
+    </div>
+
+    <div class="checkpoint">
+        Generate nominal trajectory: x̂_nom(0) → x_goal over N=600 steps. Plot all 4 states. Verify:
+        <ul>
+            <li>Trajectory converges to x_goal = [4.0, -1.0, 0, 0]</li>
+            <li>All states stay within bounds</li>
+            <li>Compute v ≈ 0.215 (such that C = L_J · v ≈ 3.64)</li>
+        </ul>
+    </div>
+</div>
+
+<!-- ============================================== -->
+<!-- PHASE 4 -->
+<!-- ============================================== -->
+<div class="phase">
+    <div class="phase-header">
+        <div class="phase-number">4</div>
+        <div>
+            <div class="phase-title">Linearization Module</div>
+            <div class="phase-subtitle">Jacobians and Lipschitz constant estimation</div>
+        </div>
+    </div>
+
+    <!-- Step 4.1 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 4.1</span>
+            <span class="step-file">linearization/jacobians.py</span>
+        </div>
+        <div class="dependencies">dynamics/discretization.py</div>
+        <p>Numerical Jacobian computation via finite differences.</p>
+        <div class="functions">
+            <code>numerical_jacobian(f, x, u, eps=1e-6) → (A, B)</code>
+            <code>compute_jacobians_along_trajectory(f, x_nom, u_nom) → [(A_k, B_k), ...]</code>
+        </div>
+    </div>
+
+    <!-- Step 4.2 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 4.2</span>
+            <span class="step-file">linearization/lipschitz.py</span>
+        </div>
+        <div class="dependencies">linearization/jacobians.py, trajectory/nominal_planner.py</div>
+        <p>Estimate Lipschitz constants γ, L_J, L_r.</p>
+        <div class="functions">
+            <code>estimate_gamma(plant, twin, x_nom, u_nom) → γ</code>
+            <code>estimate_L_J(f, x_nom, u_nom, v) → L_J</code>
+            <code>estimate_L_r(f, x_nom, u_nom, num_samples=100) → L_r</code>
+            <code>compute_C(L_J, v) → C</code>
+        </div>
+        <div class="critical">
+            <strong>Paper values to match:</strong><br>
+            • γ = 0.034<br>
+            • L_J = 16.94<br>
+            • L_r = 0.074<br>
+            • C = L_J · v = 3.64
+        </div>
+    </div>
+
+    <!-- Step 4.3 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 4.3</span>
+            <span class="step-file">tests/test_linearization.py</span>
+        </div>
+        <p>Test Jacobian accuracy and Lipschitz estimates.</p>
+        <div class="functions">
+            <code>test_jacobian_accuracy()</code>
+            <code>test_jacobian_variation_bound()  # ||[A(k)-A(s), B(k)-B(s)]|| ≤ L_J·v·|k-s|</code>
+            <code>test_lipschitz_estimates_positive()</code>
+        </div>
+        <div class="test-cmd">$ python -m pytest tests/test_linearization.py -v</div>
+    </div>
+
+    <div class="checkpoint">
+        Compute all Jacobians along nominal trajectory. Verify variation bound holds for sampled pairs (k, s).
+    </div>
+</div>
+
+<!-- ============================================== -->
+<!-- PHASE 5 -->
+<!-- ============================================== -->
+<div class="phase">
+    <div class="phase-header">
+        <div class="phase-number">5</div>
+        <div>
+            <div class="phase-title">Data-Driven Module</div>
+            <div class="phase-subtitle">Data collection, uncertainty sets, β computation</div>
+        </div>
+    </div>
+
+    <!-- Step 5.1 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 5.1</span>
+            <span class="step-file">data_driven/data_collection.py</span>
+        </div>
+        <div class="dependencies">config/params.py</div>
+        <p>Segment management and data matrix construction.</p>
+        <div class="functions">
+            <code>class SegmentManager:</code>
+            <code>    get_segment_indices(i) → range(k_i, k_{i+1})</code>
+            <code>    get_data_window(i) → range(k_i^D, k_{i+1})</code>
+            <code>    is_in_data_window(k, i) → bool</code>
+            <code></code>
+            <code>build_data_matrices(eta_log, xi_log, segment_i) → (H, H_plus, Xi)</code>
+            <code>check_rank_condition(H, Xi, n, m) → bool</code>
+        </div>
+        <div class="warning">
+            <strong>Key indices:</strong><br>
+            • Segment i: T_i = {iT, ..., (i+1)T - 1}<br>
+            • Data window: T_i^D = {(i+1)T - L, ..., (i+1)T - 1}<br>
+            • With T=100, L=60: First window is k=40..99
+        </div>
+    </div>
+
+    <!-- Step 5.2 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 5.2</span>
+            <span class="step-file">data_driven/beta_computation.py</span>
+        </div>
+        <div class="dependencies">data_driven/data_collection.py, linearization/lipschitz.py</div>
+        <p>Compute disturbance energy bound β_i (Eq. 16).</p>
+        <div class="functions">
+            <code>compute_beta(eta_log, xi_log, data_window, k_i, C, gamma, L_r) → β_i</code>
+        </div>
+        <div class="code-snippet">def compute_beta(eta_log, xi_log, data_window, k_i, C, gamma, L_r):
+    beta = 0.0
+    for k in data_window:
+        z = np.concatenate([eta_log[k], xi_log[k]])
+        norm_z = np.linalg.norm(z)
+        term = C * abs(k - k_i) * norm_z + gamma + L_r * norm_z**2
+        beta += term**2
+    return beta</div>
+    </div>
+
+    <!-- Step 5.3 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 5.3</span>
+            <span class="step-file">data_driven/uncertainty_sets.py</span>
+        </div>
+        <div class="dependencies">data_driven/beta_computation.py</div>
+        <p>Define uncertainty set parameters (used by LMI construction).</p>
+        <div class="functions">
+            <code>compute_jacobian_variation_bound(C, T_tilde) → C²T̃²</code>
+            <code>class UncertaintyParams:</code>
+            <code>    beta: float  # from data</code>
+            <code>    C2_T2: float  # C² · T̃²</code>
+        </div>
+    </div>
+
+    <!-- Step 5.4 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 5.4</span>
+            <span class="step-file">control/excitation.py</span>
+        </div>
+        <p>Generate persistence of excitation signals.</p>
+        <div class="functions">
+            <code>generate_excitation(m, eps_bar) → ε  # ||ε|| ≤ ε̄</code>
+            <code>verify_pe_condition(H, Xi, n, m) → (satisfied, rank)</code>
+        </div>
+    </div>
+
+    <div class="checkpoint">
+        Simulate one segment with excitation. Build H, H⁺, Ξ matrices. Verify:
+        <ul>
+            <li>Dimensions: H is (4, 60), Xi is (2, 60)</li>
+            <li>rank([H; Xi]) = 6</li>
+            <li>β is finite and positive</li>
+        </ul>
+    </div>
+</div>
+
+<!-- ============================================== -->
+<!-- PHASE 6 -->
+<!-- ============================================== -->
+<div class="phase">
+    <div class="phase-header">
+        <div class="phase-number">6</div>
+        <div>
+            <div class="phase-title">Synthesis Module</div>
+            <div class="phase-subtitle">LMI construction and SDP solver (THE CORE)</div>
+        </div>
+    </div>
+
+    <div class="critical">
+        <strong>⚠️ This is the most complex phase.</strong> Take extra care with matrix dimensions and CVXPY syntax.
+    </div>
+
+    <!-- Step 6.1 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 6.1</span>
+            <span class="step-file">synthesis/ellipsoid_bounds.py</span>
+        </div>
+        <div class="dependencies">trajectory/nominal_planner.py, config/params.py</div>
+        <p>Compute P_min, R_max via Maximum Volume Inscribed Ellipsoid.</p>
+        <div class="functions">
+            <code>compute_mvie_state(x_nom_k, x_bounds) → P_min_k</code>
+            <code>compute_mvie_input(u_nom_k, u_bounds) → R_max_k</code>
+            <code>compute_segment_bounds(x_nom, u_nom, segment, bounds) → (P_min_i, R_max_i)</code>
+        </div>
+        <div class="output-expected">
+            <strong>Paper values at k=0:</strong><br>
+            P_min^{1/2}(0) = diag(0.19, 0.12, 0.12, 0.14)<br>
+            R_max^{1/2}(0) = diag(28.56, 37.62)
+        </div>
+    </div>
+
+    <!-- Step 6.2 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 6.2</span>
+            <span class="step-file">synthesis/lmi_matrices.py</span>
+        </div>
+        <div class="dependencies">data_driven/uncertainty_sets.py</div>
+        <p>Build S, Ñ₁, Ñ₂ matrices for the main LMI (Theorem 1).</p>
+        <div class="functions">
+            <code>build_S_matrix(P, L, nu, alpha, n, m) → S (20×20)</code>
+            <code>build_N1_tilde(H, H_plus, Xi, beta, n, m) → Ñ₁ (20×20)</code>
+            <code>build_N2_tilde(C, T_tilde, n, m) → Ñ₂ (20×20)</code>
+        </div>
+        <div class="critical">
+            <strong>Block structure for S:</strong><br>
+            Blocks: [n, n, m, n, m, n] = [4, 4, 2, 4, 2, 4]<br>
+            Total dimension: 20×20<br>
+            <br>
+            Row/col indices: [0, 4, 8, 10, 14, 16, 20]
+        </div>
+        <div class="warning">
+            <strong>For CVXPY:</strong> Build S using cp.bmat() with P, L as variables. Ñ₁, Ñ₂ are constant matrices (data-dependent).
+        </div>
+    </div>
+
+    <!-- Step 6.3 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 6.3</span>
+            <span class="step-file">synthesis/sdp_solver.py</span>
+        </div>
+        <div class="dependencies">synthesis/lmi_matrices.py, synthesis/ellipsoid_bounds.py</div>
+        <p>Main SDP solver (Eq. 22).</p>
+        <div class="functions">
+            <code>solve_funnel_sdp(H, H_plus, Xi, beta, P_min, R_max, </code>
+            <code>                 alpha, C, T_tilde, P_prev=None, mu=1.02)</code>
+            <code>    → (P_opt, K_opt, success)</code>
+        </div>
+        <div class="code-snippet"># SDP structure:
+# maximize    log det(P)
+# subject to  P ≻ 0
+#             λ₁ ≥ 0, λ₂ ≥ 0, ν > 0
+#             S(P, L, ν) - λ₁·Ñ₁ - λ₂·Ñ₂ ≽ 0
+#             P ≽ P_min
+#             [R_max, L; L^T, P] ≽ 0
+#             P ≼ μ·P_prev  (if not first segment)</div>
+    </div>
+
+    <!-- Step 6.4 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 6.4</span>
+            <span class="step-file">tests/test_sdp.py</span>
+        </div>
+        <p>Test SDP components and full solve.</p>
+        <div class="functions">
+            <code>test_S_matrix_dimensions()</code>
+            <code>test_S_matrix_symmetry()</code>
+            <code>test_N1_N2_dimensions()</code>
+            <code>test_sdp_feasible_with_good_data()</code>
+            <code>test_recovered_K_stabilizes()</code>
+        </div>
+        <div class="test-cmd">$ python -m pytest tests/test_sdp.py -v</div>
+    </div>
+
+    <div class="checkpoint">
+        <strong>Critical test:</strong> Create synthetic "easy" data (small deviations), solve SDP, verify:
+        <ul>
+            <li>SDP returns optimal status</li>
+            <li>P is positive definite</li>
+            <li>K = L @ inv(P) stabilizes the linearized system</li>
+        </ul>
+    </div>
+</div>
+
+<!-- ============================================== -->
+<!-- PHASE 7 -->
+<!-- ============================================== -->
+<div class="phase">
+    <div class="phase-header">
+        <div class="phase-number">7</div>
+        <div>
+            <div class="phase-title">Integration & Simulation</div>
+            <div class="phase-subtitle">Put it all together</div>
+        </div>
+    </div>
+
+    <!-- Step 7.1 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 7.1</span>
+            <span class="step-file">control/segmented_controller.py</span>
+        </div>
+        <div class="dependencies">ALL previous modules</div>
+        <p>Implement Algorithm 1: Online Data-Driven Funnel Control.</p>
+        <div class="functions">
+            <code>class SegmentedFunnelController:</code>
+            <code>    __init__(plant, twin, x_nom, u_nom, params)</code>
+            <code>    initialize(K0, P0)</code>
+            <code>    compute_control(k, x) → u</code>
+            <code>    end_of_segment_update(k) → success</code>
+            <code></code>
+            <code>design_initial_controller(twin, x_nom, u_nom, params) → (K0, P0)</code>
+        </div>
+    </div>
+
+    <!-- Step 7.2 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 7.2</span>
+            <span class="step-file">simulation/closed_loop.py</span>
+        </div>
+        <div class="dependencies">control/segmented_controller.py</div>
+        <p>Main simulation loop.</p>
+        <div class="functions">
+            <code>run_simulation(plant, twin, x_nom, u_nom, x0_plant, params) → results</code>
+        </div>
+    </div>
+
+    <!-- Step 7.3 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 7.3</span>
+            <span class="step-file">simulation/baseline.py</span>
+        </div>
+        <div class="dependencies">dynamics/digital_twin.py</div>
+        <p>Baseline comparison (twin controller on plant).</p>
+        <div class="functions">
+            <code>run_baseline(plant, x_nom, u_nom, x0_plant, K_twin) → (x_traj, u_traj)</code>
+        </div>
+    </div>
+
+    <!-- Step 7.4 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 7.4</span>
+            <span class="step-file">visualization/trajectory_plots.py</span>
+        </div>
+        <p>Create Figure 4 from the paper.</p>
+        <div class="functions">
+            <code>plot_tracking_results(results, baseline, params) → fig</code>
+            <code>plot_single_state(ax, t, x_nom, x_prop, x_base, bounds, funnels)</code>
+        </div>
+    </div>
+
+    <!-- Step 7.5 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 7.5</span>
+            <span class="step-file">visualization/funnel_plots.py</span>
+        </div>
+        <p>Visualize ellipsoidal funnels (optional but useful).</p>
+        <div class="functions">
+            <code>plot_ellipsoid_2d(P, center, ax) → patches</code>
+            <code>plot_funnel_sequence(P_history, x_nom, state_indices)</code>
+        </div>
+    </div>
+
+    <!-- Step 7.6 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 7.6</span>
+            <span class="step-file">main.py</span>
+        </div>
+        <div class="dependencies">ALL modules</div>
+        <p>Entry point that runs everything.</p>
+        <div class="code-snippet">def main():
+    # 1. Create systems
+    plant, twin = create_plant(), create_twin()
+    
+    # 2. Generate nominal trajectory
+    x_nom, u_nom = generate_nominal_trajectory(...)
+    
+    # 3. Estimate Lipschitz constants
+    gamma, L_J, L_r, C = estimate_constants(...)
+    
+    # 4. Run proposed method
+    results = run_simulation(plant, twin, x_nom, u_nom, x0_plant, params)
+    
+    # 5. Run baseline
+    baseline = run_baseline(plant, x_nom, u_nom, x0_plant, K0)
+    
+    # 6. Visualize
+    fig = plot_tracking_results(results, baseline, params)
+    fig.savefig('figures/q1234.png')
+    
+    # 7. Report metrics
+    print(f"Terminal deviation: {results['eta_final_norm']:.4e}")
+
+if __name__ == "__main__":
+    main()</div>
+    </div>
+
+    <!-- Step 7.7 -->
+    <div class="step">
+        <div class="step-header">
+            <span class="step-number">Step 7.7</span>
+            <span class="step-file">tests/test_full_pipeline.py</span>
+        </div>
+        <p>End-to-end integration test.</p>
+        <div class="functions">
+            <code>test_full_simulation_runs()</code>
+            <code>test_constraints_satisfied()</code>
+            <code>test_terminal_deviation_reasonable()</code>
+            <code>test_baseline_worse_than_proposed()</code>
+        </div>
+    </div>
+
+    <div class="checkpoint">
+        <strong>FINAL CHECKPOINT:</strong> Run main.py and verify:
+        <ul>
+            <li>6 segments complete (N=600, T=100)</li>
+            <li>All SDPs solve successfully</li>
+            <li>Terminal deviation ||η(N)|| ≈ 4.725 × 10⁻²</li>
+            <li>Figure 4 looks similar to paper</li>
+            <li>Proposed method outperforms baseline</li>
+        </ul>
+    </div>
+</div>
+
+<!-- ============================================== -->
+<!-- SUMMARY TABLE -->
+<!-- ============================================== -->
+<h2 style="margin-top: 40px;">📋 Build Order Summary</h2>
+
+<table class="summary-table">
+    <tr>
+        <th>Step</th>
+        <th>File</th>
+        <th>Dependencies</th>
+        <th>Test</th>
+    </tr>
+    <tr>
+        <td>1.1</td>
+        <td>requirements.txt</td>
+        <td>—</td>
+        <td>pip install</td>
+    </tr>
+    <tr>
+        <td>1.2</td>
+        <td>config/params.py</td>
+        <td>—</td>
+        <td>import test</td>
+    </tr>
+    <tr>
+        <td>1.3</td>
+        <td>__init__.py files</td>
+        <td>—</td>
+        <td>—</td>
+    </tr>
+    <tr>
+        <td>2.1</td>
+        <td>dynamics/robot_arm.py</td>
+        <td>1.2</td>
+        <td>M(q) > 0</td>
+    </tr>
+    <tr>
+        <td>2.2</td>
+        <td>dynamics/discretization.py</td>
+        <td>2.1</td>
+        <td>RK4 accuracy</td>
+    </tr>
+    <tr>
+        <td>2.3</td>
+        <td>dynamics/digital_twin.py</td>
+        <td>2.1, 2.2</td>
+        <td>mismatch ≤ γ</td>
+    </tr>
+    <tr>
+        <td>2.4</td>
+        <td>tests/test_dynamics.py</td>
+        <td>2.1-2.3</td>
+        <td>pytest</td>
+    </tr>
+    <tr>
+        <td>3.1</td>
+        <td>trajectory/nominal_planner.py</td>
+        <td>2.3</td>
+        <td>converges to goal</td>
+    </tr>
+    <tr>
+        <td>3.2</td>
+        <td>trajectory/trajectory_utils.py</td>
+        <td>3.1</td>
+        <td>v computation</td>
+    </tr>
+    <tr>
+        <td>4.1</td>
+        <td>linearization/jacobians.py</td>
+        <td>2.2</td>
+        <td>accuracy</td>
+    </tr>
+    <tr>
+        <td>4.2</td>
+        <td>linearization/lipschitz.py</td>
+        <td>4.1, 3.1</td>
+        <td>match paper values</td>
+    </tr>
+    <tr>
+        <td>4.3</td>
+        <td>tests/test_linearization.py</td>
+        <td>4.1-4.2</td>
+        <td>pytest</td>
+    </tr>
+    <tr>
+        <td>5.1</td>
+        <td>data_driven/data_collection.py</td>
+        <td>1.2</td>
+        <td>indices correct</td>
+    </tr>
+    <tr>
+        <td>5.2</td>
+        <td>data_driven/beta_computation.py</td>
+        <td>5.1, 4.2</td>
+        <td>β > 0</td>
+    </tr>
+    <tr>
+        <td>5.3</td>
+        <td>data_driven/uncertainty_sets.py</td>
+        <td>5.2</td>
+        <td>—</td>
+    </tr>
+    <tr>
+        <td>5.4</td>
+        <td>control/excitation.py</td>
+        <td>—</td>
+        <td>||ε|| ≤ ε̄</td>
+    </tr>
+    <tr>
+        <td>6.1</td>
+        <td>synthesis/ellipsoid_bounds.py</td>
+        <td>3.1, 1.2</td>
+        <td>P_min, R_max values</td>
+    </tr>
+    <tr>
+        <td>6.2</td>
+        <td>synthesis/lmi_matrices.py</td>
+        <td>5.3</td>
+        <td>dimensions, symmetry</td>
+    </tr>
+    <tr>
+        <td>6.3</td>
+        <td>synthesis/sdp_solver.py</td>
+        <td>6.1, 6.2</td>
+        <td>SDP feasible</td>
+    </tr>
+    <tr>
+        <td>6.4</td>
+        <td>tests/test_sdp.py</td>
+        <td>6.1-6.3</td>
+        <td>pytest</td>
+    </tr>
+    <tr>
+        <td>7.1</td>
+        <td>control/segmented_controller.py</td>
+        <td>ALL</td>
+        <td>—</td>
+    </tr>
+    <tr>
+        <td>7.2</td>
+        <td>simulation/closed_loop.py</td>
+        <td>7.1</td>
+        <td>—</td>
+    </tr>
+    <tr>
+        <td>7.3</td>
+        <td>simulation/baseline.py</td>
+        <td>2.3</td>
+        <td>—</td>
+    </tr>
+    <tr>
+        <td>7.4</td>
+        <td>visualization/trajectory_plots.py</td>
+        <td>—</td>
+        <td>Figure 4</td>
+    </tr>
+    <tr>
+        <td>7.5</td>
+        <td>visualization/funnel_plots.py</td>
+        <td>—</td>
+        <td>optional</td>
+    </tr>
+    <tr>
+        <td>7.6</td>
+        <td>main.py</td>
+        <td>ALL</td>
+        <td>full run</td>
+    </tr>
+    <tr>
+        <td>7.7</td>
+        <td>tests/test_full_pipeline.py</td>
+        <td>ALL</td>
+        <td>pytest</td>
+    </tr>
+</table>
+
+<!-- ============================================== -->
+<!-- DEBUGGING TIPS -->
+<!-- ============================================== -->
+<h2 style="margin-top: 40px;">🐛 Debugging Guide</h2>
+
+<div class="module">
+    <h3>Common Issues & Solutions</h3>
+    
+    <div class="warning">
+        <strong>Issue:</strong> SDP returns infeasible<br>
+        <strong>Check:</strong>
+        <ul>
+            <li>Is rank([H; Xi]) = 6? If not, add more excitation.</li>
+            <li>Is β too large? Reduce deviations or increase α.</li>
+            <li>Is P_min too restrictive? Check nominal is far from bounds.</li>
+        </ul>
+    </div>
+    
+    <div class="warning">
+        <strong>Issue:</strong> LMI matrix dimensions wrong<br>
+        <strong>Check:</strong>
+        <ul>
+            <li>Block indices: [0, 4, 8, 10, 14, 16, 20]</li>
+            <li>S is (20, 20), N1_tilde is (20, 20), N2_tilde is (20, 20)</li>
+            <li>H is (4, L), Xi is (2, L) where L = 60</li>
+        </ul>
+    </div>
+    
+    <div class="warning">
+        <strong>Issue:</strong> Trajectory diverges<br>
+        <strong>Check:</strong>
+        <ul>
+            <li>Is initial K0 stabilizing? Test on linearized twin.</li>
+            <li>Are states clipped to constraints?</li>
+            <li>Is plant starting too far from nominal?</li>
+        </ul>
+    </div>
+    
+    <div class="warning">
+        <strong>Issue:</strong> Lipschitz estimates way off from paper<br>
+        <strong>Check:</strong>
+        <ul>
+            <li>Are you using discrete-time Jacobians (not continuous)?</li>
+            <li>Is the finite difference step size appropriate (1e-6)?</li>
+            <li>Are plant/twin parameters exactly as in Table I?</li>
+        </ul>
+    </div>
+</div>
+
+<hr style="margin-top: 40px;">
+<p style="text-align: center; color: #7f8c8d;">
+    <strong>Build Plan Complete</strong><br>
+    Follow phases 1→7 in order. Test at each checkpoint before proceeding.<br>
+    <em>Good luck! 🚀</em>
+</p>
+
+</div>
+</body>
+</html>

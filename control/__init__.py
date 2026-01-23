@@ -9,5 +9,8 @@ from .excitation import (
     ExcitationGenerator,
 )
 
-# segmented_controller will be imported when implemented
-# from .segmented_controller import SegmentedFunnelController, design_initial_controller
+from .segmented_controller import (
+    SegmentedFunnelController,
+    design_initial_controller,
+    create_controller_from_params,
+)

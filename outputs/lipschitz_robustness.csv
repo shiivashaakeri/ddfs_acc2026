@@ -1,0 +1,5 @@
+Parameter,Max Over-est (feasible),Min Under-est (feasible),Violations at true,Recommended margin
+gamma,+100%,-50%,0,20-30%
+L_J,+100%,-50%,0,20-30%
+L_r,+100%,-50%,0,20-30%
+all,+100%,-50%,0,20-30%

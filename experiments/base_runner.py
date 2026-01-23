@@ -138,24 +138,25 @@ def run_single_experiment(
         if plant_params is not None:
             from dynamics.discretization import DiscreteSystem
             plant_arm = RobotArm2DoF(**plant_params)
-            plant = DiscreteSystem(plant_arm, SIM_PARAMS['dt'])
+            plant = DiscreteSystem(plant_arm.dynamics, SIM_PARAMS['dt'])
         else:
             plant = create_plant()
 
         if twin_params is not None:
             from dynamics.discretization import DiscreteSystem
             twin_arm = RobotArm2DoF(**twin_params)
-            twin = DiscreteSystem(twin_arm, SIM_PARAMS['dt'])
+            twin = DiscreteSystem(twin_arm.dynamics, SIM_PARAMS['dt'])
         else:
             twin = create_twin()
 
-        # Generate nominal trajectory
+        # Generate nominal trajectory (always use standard twin)
+        std_twin = create_twin()
         arm = RobotArm2DoF(**TWIN_PARAMS)
         x_nom_0 = np.array(INITIAL_STATES['x_nom_0'])
         x_goal = np.array(INITIAL_STATES['x_goal'])
         u_goal = np.array(INITIAL_STATES['u_goal'])
 
-        x_nom, u_nom = generate_nominal_trajectory(twin, x_nom_0, x_goal, u_goal, N, arm=arm)
+        x_nom, u_nom = generate_nominal_trajectory(std_twin, x_nom_0, x_goal, u_goal, N, arm=arm)
 
         # Create controller with custom parameters
         n, m = 4, 2
@@ -238,24 +239,25 @@ def run_baseline_experiment(
         if plant_params is not None:
             from dynamics.discretization import DiscreteSystem
             plant_arm = RobotArm2DoF(**plant_params)
-            plant = DiscreteSystem(plant_arm, SIM_PARAMS['dt'])
+            plant = DiscreteSystem(plant_arm.dynamics, SIM_PARAMS['dt'])
         else:
             plant = create_plant()
 
         if twin_params is not None:
             from dynamics.discretization import DiscreteSystem
             twin_arm = RobotArm2DoF(**twin_params)
-            twin = DiscreteSystem(twin_arm, SIM_PARAMS['dt'])
+            twin = DiscreteSystem(twin_arm.dynamics, SIM_PARAMS['dt'])
         else:
             twin = create_twin()
 
-        # Generate nominal trajectory
+        # Generate nominal trajectory (always use standard twin)
+        std_twin = create_twin()
         arm = RobotArm2DoF(**TWIN_PARAMS)
         x_nom_0 = np.array(INITIAL_STATES['x_nom_0'])
         x_goal = np.array(INITIAL_STATES['x_goal'])
         u_goal = np.array(INITIAL_STATES['u_goal'])
 
-        x_nom, u_nom = generate_nominal_trajectory(twin, x_nom_0, x_goal, u_goal, N, arm=arm)
+        x_nom, u_nom = generate_nominal_trajectory(std_twin, x_nom_0, x_goal, u_goal, N, arm=arm)
 
         # Design baseline controller
         K_baseline = design_twin_controller(twin, x_goal, u_goal)

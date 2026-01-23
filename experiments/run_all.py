@@ -79,11 +79,82 @@ def run_section_3(quick: bool = False):
     return results
 
 
+def run_section_4(quick: bool = False):
+    """§4. Plant-Twin Mismatch Scaling"""
+    from experiments.mismatch_scaling import run_mismatch_scaling, plot_mismatch_scaling
+
+    if quick:
+        scales = [0.5, 1.0, 2.0]
+    else:
+        scales = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+
+    df = run_mismatch_scaling(scales=scales, verbose=True)
+    plot_mismatch_scaling(df)
+    df.to_csv('outputs/mismatch_scaling.csv', index=False)
+
+    return df
+
+
+def run_section_5(quick: bool = False):
+    """§5. Unmodeled Dynamics & External Disturbances"""
+    from experiments.disturbances import run_disturbance_experiments, plot_disturbance_results
+
+    df = run_disturbance_experiments(verbose=True)
+    plot_disturbance_results(df)
+    df.to_csv('outputs/disturbance_results.csv', index=False)
+
+    return df
+
+
+def run_section_6(quick: bool = False):
+    """§6. Multiple Initial Conditions"""
+    from experiments.initial_conditions import run_initial_condition_experiments, plot_initial_conditions
+
+    if quick:
+        magnitudes = [1.0, 2.0, 3.0]
+        n_directions = 5
+    else:
+        magnitudes = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+        n_directions = 10
+
+    df = run_initial_condition_experiments(
+        magnitudes=magnitudes,
+        n_directions=n_directions,
+        verbose=True,
+    )
+    plot_initial_conditions(df)
+    df.to_csv('outputs/initial_conditions.csv', index=False)
+
+    return df
+
+
+def run_section_7(quick: bool = False):
+    """§7. Computational Complexity Analysis"""
+    from experiments.timing_analysis import run_timing_breakdown, run_scaling_analysis, plot_timing_results
+
+    timings = run_timing_breakdown(verbose=True)
+
+    if quick:
+        L_values = [40, 60, 80]
+    else:
+        L_values = [20, 40, 60, 80, 100]
+
+    scaling_df = run_scaling_analysis(L_values=L_values, verbose=True)
+    plot_timing_results(timings, scaling_df)
+
+    import pandas as pd
+    timing_df = pd.DataFrame([timings])
+    timing_df.to_csv('outputs/timing_breakdown.csv', index=False)
+    scaling_df.to_csv('outputs/timing_scaling.csv', index=False)
+
+    return timings, scaling_df
+
+
 def main():
     parser = argparse.ArgumentParser(description='Run DDFS reviewer experiments')
     parser.add_argument('--quick', action='store_true', help='Run quick subset for testing')
-    parser.add_argument('--section', type=int, choices=[1, 2, 3, 4, 5, 6, 7],
-                        help='Run specific section only')
+    parser.add_argument('--section', type=int, choices=range(1, 8),
+                        help='Run specific section only (1-7)')
     args = parser.parse_args()
 
     os.makedirs('outputs', exist_ok=True)
@@ -101,6 +172,10 @@ def main():
         1: ("§1. T Sensitivity", run_section_1),
         2: ("§2. α-μ Sensitivity", run_section_2),
         3: ("§3. Lipschitz Sensitivity", run_section_3),
+        4: ("§4. Mismatch Scaling", run_section_4),
+        5: ("§5. Disturbances", run_section_5),
+        6: ("§6. Initial Conditions", run_section_6),
+        7: ("§7. Timing Analysis", run_section_7),
     }
 
     if args.section:

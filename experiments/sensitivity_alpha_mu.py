@@ -162,22 +162,68 @@ def plot_alpha_mu_heatmap(df: pd.DataFrame, output_dir: str = "outputs"):
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # Left: Feasibility heatmap
+    # Left: Feasibility heatmap using pcolormesh for correct alignment
     ax = axes[0]
-    im = ax.imshow(feasibility_matrix, cmap='RdYlGn', aspect='auto',
-                   extent=[alphas[0]-0.01, alphas[-1]+0.01, mus[-1]+0.02, mus[0]-0.02])
+
+    # Create mesh coordinates
+    alpha_edges = np.concatenate([[alphas[0] - 0.01],
+                                   (np.array(alphas[:-1]) + np.array(alphas[1:])) / 2,
+                                   [alphas[-1] + 0.01]])
+    mu_edges = np.concatenate([[mus[0] - 0.005],
+                                (np.array(mus[:-1]) + np.array(mus[1:])) / 2,
+                                [mus[-1] + 0.005]])
+
+    pcm = ax.pcolormesh(alpha_edges, mu_edges, feasibility_matrix,
+                        cmap='RdYlGn', vmin=0, vmax=1, shading='flat')
     ax.set_xlabel('Decay Rate α', fontsize=12)
     ax.set_ylabel('Growth Bound μ', fontsize=12)
     ax.set_title('Feasibility Map (Green=Feasible, Red=Infeasible)', fontsize=14)
     ax.set_xticks(alphas)
     ax.set_yticks(mus)
 
-    # Add text annotations
+    # Add text annotations at cell centers
     for i, mu in enumerate(mus):
         for j, alpha in enumerate(alphas):
             color = 'white' if feasibility_matrix[i, j] < 0.5 else 'black'
-            ax.text(alpha, mu, f'{feasibility_matrix[i, j]:.0f}',
-                    ha='center', va='center', color=color, fontsize=10)
+            ax.text(alpha, mu, f'{int(feasibility_matrix[i, j])}',
+                    ha='center', va='center', color=color, fontsize=10, fontweight='bold')
+
+    # Mark paper's choice if in the data
+    if 0.98 in alphas and 1.02 in mus:
+        ax.plot(0.98, 1.02, 'b*', markersize=15, markeredgecolor='white', markeredgewidth=2)
+        ax.annotate('Paper', (0.98, 1.02), xytext=(0.98, 1.025),
+                    fontsize=10, color='blue', weight='bold', ha='center')
+
+    # Right: Terminal deviation heatmap
+    ax = axes[1]
+
+    if not np.all(np.isnan(terminal_matrix)):
+        pcm2 = ax.pcolormesh(alpha_edges, mu_edges, terminal_matrix,
+                             cmap='viridis', shading='flat')
+        plt.colorbar(pcm2, ax=ax, label='Terminal Deviation ||η(N)||')
+
+        # Add text annotations
+        for i, mu in enumerate(mus):
+            for j, alpha in enumerate(alphas):
+                if not np.isnan(terminal_matrix[i, j]):
+                    ax.text(alpha, mu, f'{terminal_matrix[i, j]:.3f}',
+                            ha='center', va='center', color='white', fontsize=8)
+
+    ax.set_xlabel('Decay Rate α', fontsize=12)
+    ax.set_ylabel('Growth Bound μ', fontsize=12)
+    ax.set_title('Terminal Deviation ||η(N)||', fontsize=14)
+    ax.set_xticks(alphas)
+    ax.set_yticks(mus)
+
+    # Mark paper's choice
+    if 0.98 in alphas and 1.02 in mus:
+        ax.plot(0.98, 1.02, 'r*', markersize=15, markeredgecolor='white', markeredgewidth=2)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'alpha_mu_heatmap.png'), dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print(f"Saved: {output_dir}/alpha_mu_heatmap.png")
 
     # Mark paper's choice
     ax.plot(0.98, 1.02, 'b*', markersize=15, markeredgecolor='white', markeredgewidth=2)

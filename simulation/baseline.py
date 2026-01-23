@@ -70,7 +70,10 @@ def design_twin_controller(
     A, B = linearize_at_point(twin, x_goal, u_goal)
 
     # Compute LQR gain
-    K = compute_lqr_gain(A, B, Q, R)
+    # LQR returns K for u = -K @ x, but our control law is u = u_nom + K @ eta
+    # So we need to negate: K = -K_lqr
+    K_lqr = compute_lqr_gain(A, B, Q, R)
+    K = -K_lqr
 
     return K
 

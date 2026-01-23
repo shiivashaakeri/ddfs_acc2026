@@ -262,21 +262,35 @@ class SegmentedFunnelController:
         })
 
         if result.success:
-            # Update controller
-            self.P = result.P
-            self.K = result.K
-            self.L_mat = result.L
+            # Verify the new K is stabilizing before using it
+            K_new = result.K
+            is_stabilizing = self._check_stability(K_new, next_segment_start)
 
-            self.P_history.append(self.P.copy())
-            self.K_history.append(self.K.copy())
-            self.L_history.append(self.L_mat.copy())
+            if is_stabilizing:
+                # Update controller with new gains
+                self.P = result.P
+                self.K = result.K
+                self.L_mat = result.L
+
+                self.P_history.append(self.P.copy())
+                self.K_history.append(self.K.copy())
+                self.L_history.append(self.L_mat.copy())
+            else:
+                # SDP produced unstable K, keep current stabilizing controller
+                print(f"Warning: SDP at segment {self.current_segment} produced unstable K, keeping previous controller")
+                self.P_history.append(self.P.copy())
+                self.K_history.append(self.K.copy())
+                self.L_history.append(self.L_mat.copy())
 
             self.current_segment += 1
             self.excitation_gen.reset()
-            return True
+            return is_stabilizing
         else:
             print(f"SDP failed at segment {self.current_segment}: {result.status}")
             # Keep current controller
+            self.P_history.append(self.P.copy())
+            self.K_history.append(self.K.copy())
+            self.L_history.append(self.L_mat.copy())
             self.current_segment += 1
             return False
 
@@ -301,6 +315,36 @@ class SegmentedFunnelController:
             if k in self.xi_log:
                 xi_array[k] = self.xi_log[k]
         return xi_array
+
+    def _check_stability(self, K: np.ndarray, k: int) -> bool:
+        """
+        Check if gain K produces a stable closed-loop system.
+
+        Linearizes the twin at operating point k and checks if all
+        closed-loop eigenvalues are inside the unit circle.
+
+        Args:
+            K: (m, n) Feedback gain
+            k: Time index for linearization point
+
+        Returns:
+            True if closed-loop system is stable
+        """
+        from trajectory.nominal_planner import linearize_at_point
+
+        # Get linearization at operating point
+        x_op = self.x_nom[k]
+        u_op = self.u_nom[k] if k < len(self.u_nom) else self.u_nom[-1]
+
+        A, B = linearize_at_point(self.twin, x_op, u_op)
+
+        # Closed-loop: x_next = (A + B @ K) @ x
+        A_cl = A + B @ K
+        eigs = np.linalg.eigvals(A_cl)
+
+        # Check all eigenvalues inside unit circle (with small margin)
+        max_eig_mag = np.max(np.abs(eigs))
+        return max_eig_mag < 1.0
 
     def get_funnel_at_k(self, k: int) -> np.ndarray:
         """Get the funnel matrix P for time k."""
@@ -355,10 +399,13 @@ def design_initial_controller(
     R = np.eye(m) * 0.1
 
     try:
-        K0 = compute_lqr_gain(A, B, Q, R)
+        K_lqr = compute_lqr_gain(A, B, Q, R)
+        # LQR returns K for u = -K @ x, but our control law is u = u_nom + K @ eta
+        # So we need to negate: K0 = -K_lqr
+        K0 = -K_lqr
     except Exception as e:
         print(f"Warning: LQR design failed ({e}), using fallback gain")
-        # Fallback: aggressive proportional-derivative gain
+        # Fallback: stabilizing proportional-derivative gain (negative for stability)
         K0 = np.array([
             [-20.0, 0.0, -5.0, 0.0],
             [0.0, -20.0, 0.0, -5.0]

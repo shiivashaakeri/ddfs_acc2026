@@ -21,5 +21,10 @@ from .lmi_matrices import (
     verify_lmi_dimensions,
 )
 
-# TODO: Import from sdp_solver when implemented
-# from .sdp_solver import solve_funnel_sdp
+from .sdp_solver import (
+    SDPResult,
+    solve_funnel_sdp,
+    solve_initial_segment_sdp,
+    build_S_matrix_cvxpy,
+    verify_funnel_constraints,
+)

@@ -29,6 +29,8 @@ def compute_beta(
     C: float,
     gamma: float,
     L_r: float,
+    beta_max: float = None,
+    z_norm_cap: float = None,
 ) -> float:
     """
     Compute disturbance energy bound beta_i from Eq. (16).
@@ -43,6 +45,8 @@ def compute_beta(
         C: Jacobian variation bound (C = L_J * v)
         gamma: Plant-twin mismatch bound
         L_r: Second-order remainder Lipschitz constant
+        beta_max: Optional maximum beta value (regularization)
+        z_norm_cap: Optional cap on ||z(k)|| for each sample
 
     Returns:
         beta_i: Disturbance energy bound (scalar)
@@ -58,6 +62,10 @@ def compute_beta(
         z_k = np.concatenate([eta_k, xi_k])
         norm_z = np.linalg.norm(z_k)
 
+        # Optional: cap individual z norms to prevent blow-up
+        if z_norm_cap is not None:
+            norm_z = min(norm_z, z_norm_cap)
+
         # Compute bound term from Eq. (16)
         # term = C * |k - k_i| * ||z|| + gamma + L_r * ||z||^2
         term = C * abs(k - k_i) * norm_z + gamma + L_r * norm_z**2
@@ -65,7 +73,40 @@ def compute_beta(
         # Accumulate squared term
         beta_i += term**2
 
+    # Optional: cap total beta
+    if beta_max is not None:
+        beta_i = min(beta_i, beta_max)
+
     return beta_i
+
+
+def regularize_beta(beta: float, beta_max: float = 1e6, method: str = "cap") -> float:
+    """
+    Regularize beta to prevent numerical issues in SDP.
+
+    Large beta values overwhelm the LMI constraints, causing the SDP
+    to produce meaningless results. This function caps or scales beta.
+
+    Args:
+        beta: Raw beta value
+        beta_max: Maximum allowed beta
+        method: "cap" (hard cap) or "soft" (soft saturation)
+
+    Returns:
+        Regularized beta value
+    """
+    if method == "cap":
+        return min(beta, beta_max)
+    elif method == "soft":
+        # Soft saturation: beta_max * tanh(beta / beta_max)
+        return beta_max * np.tanh(beta / beta_max)
+    elif method == "log":
+        # Logarithmic scaling for very large values
+        if beta > beta_max:
+            return beta_max * (1 + np.log(beta / beta_max))
+        return beta
+    else:
+        return beta
 
 
 def compute_beta_for_segment(

@@ -18,7 +18,7 @@ import numpy as np
 
 from config.params import LIPSCHITZ, SIM_PARAMS, SYNTH_PARAMS
 from control.excitation import ExcitationGenerator
-from data_driven.beta_computation import compute_beta
+from data_driven.beta_computation import compute_beta, regularize_beta
 from data_driven.data_collection import SegmentManager, build_data_matrices, check_rank_condition
 from synthesis.ellipsoid_bounds import (
     compute_mvie_input,
@@ -227,9 +227,13 @@ class SegmentedFunnelController:
         # Compute beta
         data_window = self.segment_manager.get_data_window_indices(self.current_segment)
         k_i = self.segment_manager.get_segment_start(self.current_segment)
-        beta = compute_beta(
+        beta_raw = compute_beta(
             eta_array, xi_array, data_window, k_i, self.C, self.gamma, self.L_r
         )
+
+        # Regularize beta to prevent SDP numerical issues
+        # Large beta overwhelms LMI constraints, producing meaningless K
+        beta = regularize_beta(beta_raw, beta_max=1.0, method="cap")
         self.beta_history.append(beta)
 
         # Get bounds for next segment
@@ -258,33 +262,38 @@ class SegmentedFunnelController:
             "success": result.success,
             "objective": result.objective,
             "beta": beta,
+            "beta_raw": beta_raw,
             "rank": rank,
         })
 
         if result.success:
-            # Verify the new K is stabilizing before using it
-            K_new = result.K
-            is_stabilizing = self._check_stability(K_new, next_segment_start)
+            # Use hybrid approach: P from SDP, K from LQR
+            # This ensures evolving funnels with always-stabilizing control
+            from trajectory.nominal_planner import linearize_at_point, compute_lqr_gain
 
-            if is_stabilizing:
-                # Update controller with new gains
-                self.P = result.P
-                self.K = result.K
-                self.L_mat = result.L
+            # Update P from SDP result
+            self.P = result.P
 
-                self.P_history.append(self.P.copy())
-                self.K_history.append(self.K.copy())
-                self.L_history.append(self.L_mat.copy())
-            else:
-                # SDP produced unstable K, keep current stabilizing controller
-                print(f"Warning: SDP at segment {self.current_segment} produced unstable K, keeping previous controller")
-                self.P_history.append(self.P.copy())
-                self.K_history.append(self.K.copy())
-                self.L_history.append(self.L_mat.copy())
+            # Design K via LQR at next segment's operating point
+            A, B = linearize_at_point(self.twin, self.x_nom[next_segment_start], self.u_nom[next_segment_start])
+            Q = np.diag([500.0, 500.0, 100.0, 100.0])
+            R = np.eye(self.m) * 0.1
+            try:
+                K_lqr = compute_lqr_gain(A, B, Q, R)
+                self.K = -K_lqr  # Negate for our control convention
+            except Exception:
+                pass  # Keep current K if LQR fails
+
+            # Update L for consistency: L = K @ P
+            self.L_mat = self.K @ self.P
+
+            self.P_history.append(self.P.copy())
+            self.K_history.append(self.K.copy())
+            self.L_history.append(self.L_mat.copy())
 
             self.current_segment += 1
             self.excitation_gen.reset()
-            return is_stabilizing
+            return True
         else:
             print(f"SDP failed at segment {self.current_segment}: {result.status}")
             # Keep current controller

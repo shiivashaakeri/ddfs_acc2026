@@ -10,8 +10,16 @@ from .ellipsoid_bounds import (
     get_bounds_from_config,
 )
 
-# TODO: Import from lmi_matrices when implemented
-# from .lmi_matrices import build_S_matrix, build_N1_tilde, build_N2_tilde
+from .lmi_matrices import (
+    build_S_matrix,
+    build_N1_tilde,
+    build_N2_tilde,
+    build_full_lmi_matrix,
+    build_constraint_matrices_cvxpy,
+    get_block_indices,
+    get_total_dimension,
+    verify_lmi_dimensions,
+)
 
 # TODO: Import from sdp_solver when implemented
 # from .sdp_solver import solve_funnel_sdp

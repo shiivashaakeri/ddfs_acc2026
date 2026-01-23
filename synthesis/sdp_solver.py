@@ -29,6 +29,101 @@ import numpy as np
 from synthesis.lmi_matrices import get_block_indices, get_total_dimension
 
 
+def estimate_AB_from_data(
+    H: np.ndarray,
+    H_plus: np.ndarray,
+    Xi: np.ndarray,
+    n: int,
+    m: int,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """
+    Estimate linearized dynamics (A_hat, B_hat) from data matrices.
+
+    From the relation: H_plus ≈ A @ H + B @ Xi + D
+    We solve: [A_hat, B_hat] = H_plus @ [H; Xi]^†
+
+    Args:
+        H: (n, L) State deviation matrix
+        H_plus: (n, L) Next-state deviation matrix
+        Xi: (m, L) Input deviation matrix
+        n: State dimension
+        m: Input dimension
+
+    Returns:
+        A_hat: (n, n) Estimated state matrix, or None if estimation fails
+        B_hat: (n, m) Estimated input matrix, or None if estimation fails
+    """
+    try:
+        # Stack [H; Xi] -> (n+m, L)
+        Z = np.vstack([H, Xi])
+
+        # Solve least squares: H_plus = [A_hat, B_hat] @ Z
+        # => [A_hat, B_hat]^T = Z^† @ H_plus^T
+        # Using pseudoinverse
+        Z_pinv = np.linalg.pinv(Z.T)  # (n+m, L)^† -> (L, n+m)
+        AB_hat = (Z_pinv @ H_plus.T).T  # (n, n+m)
+
+        A_hat = AB_hat[:, :n]
+        B_hat = AB_hat[:, n:n+m]
+
+        # Verify dimensions
+        if A_hat.shape != (n, n) or B_hat.shape != (n, m):
+            return None, None
+
+        return A_hat, B_hat
+
+    except np.linalg.LinAlgError:
+        return None, None
+
+
+def compute_stabilizing_L_from_data(
+    A_hat: np.ndarray,
+    B_hat: np.ndarray,
+    P_target: np.ndarray,
+    n: int,
+    m: int,
+) -> Optional[np.ndarray]:
+    """
+    Compute a stabilizing L = K @ P from estimated dynamics.
+
+    Uses discrete-time LQR on (A_hat, B_hat) to get stabilizing K,
+    then computes L = K @ P_target.
+
+    Args:
+        A_hat: (n, n) Estimated state matrix
+        B_hat: (n, m) Estimated input matrix
+        P_target: (n, n) Target P matrix (e.g., P_min)
+        n: State dimension
+        m: Input dimension
+
+    Returns:
+        L_target: (m, n) Stabilizing feedback parameter, or None if fails
+    """
+    try:
+        from scipy.linalg import solve_discrete_are
+
+        # LQR weights
+        Q = np.eye(n) * 10.0
+        R = np.eye(m) * 0.1
+
+        # Solve discrete-time algebraic Riccati equation
+        P_lqr = solve_discrete_are(A_hat, B_hat, Q, R)
+
+        # LQR gain: K = -(R + B^T P B)^{-1} B^T P A
+        K_lqr = -np.linalg.solve(R + B_hat.T @ P_lqr @ B_hat, B_hat.T @ P_lqr @ A_hat)
+
+        # For our convention u = u_nom + K @ eta, we negate
+        K_stab = -K_lqr
+
+        # Compute L = K @ P
+        L_target = K_stab @ P_target
+
+        return L_target
+
+    except Exception:
+        return None
+
+
 @dataclass
 class SDPResult:
     """Container for SDP solver results."""
@@ -119,6 +214,8 @@ def solve_funnel_sdp(
     mu: float = 1.02,
     solver: str = "SCS",
     verbose: bool = False,
+    L_reg_weight: float = 0.1,
+    use_data_stability: bool = True,
 ) -> SDPResult:
     """
     Solve the main SDP for segment i (Eq. 22).
@@ -147,6 +244,8 @@ def solve_funnel_sdp(
         mu: Growth bound (e.g., 1.02)
         solver: CVXPY solver to use
         verbose: Print solver output
+        L_reg_weight: Weight for L regularization in objective (default 0.1)
+        use_data_stability: If True, use estimated A,B from data for L regularization (default True)
 
     Returns:
         SDPResult with P, K, L, multipliers, and status
@@ -197,8 +296,33 @@ def solve_funnel_sdp(
     if P_prev is not None:
         constraints.append(P << mu * P_prev)
 
-    # Objective: maximize log det(P)
-    objective = cp.Maximize(cp.log_det(P))
+    # ========== REGULARIZATION TO PREVENT L ≈ 0 ==========
+
+    # 7. Data-driven stability regularization (optional)
+    # Estimate A_hat, B_hat from data and compute stabilizing L_target
+    L_target = None
+    if use_data_stability and H.shape[1] >= n + m:
+        A_hat, B_hat = estimate_AB_from_data(H, H_plus, Xi, n, m)
+        if A_hat is not None and B_hat is not None:
+            L_target = compute_stabilizing_L_from_data(A_hat, B_hat, P_min, n, m)
+
+    # Objective: maximize log det(P) + regularization on L
+    # Option A: Encourage L to be large (prevents trivial L=0)
+    #   maximize log det(P) + L_reg_weight * ||L||_F^2
+    # Option B: Encourage L to match stabilizing target (if available)
+    #   maximize log det(P) - L_reg_weight * ||L - L_target||_F^2
+    #
+    # Note: cp.sum_squares(L) = ||L||_F^2 = tr(L @ L.T) and is DCP-compliant
+
+    if L_target is not None and np.linalg.norm(L_target) > 1e-6:
+        # Encourage L to match the LQR-derived stabilizing target
+        # Minimize ||L - L_target||^2, which means maximize -||L - L_target||^2
+        objective = cp.Maximize(
+            cp.log_det(P) - L_reg_weight * cp.sum_squares(L - L_target)
+        )
+    else:
+        # Encourage larger L magnitude to prevent trivial solutions
+        objective = cp.Maximize(cp.log_det(P) + L_reg_weight * cp.sum_squares(L))
 
     # Solve
     problem = cp.Problem(objective, constraints)

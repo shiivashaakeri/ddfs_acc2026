@@ -267,25 +267,32 @@ class SegmentedFunnelController:
         })
 
         if result.success:
-            # Use hybrid approach: P from SDP, K from LQR
-            # This ensures evolving funnels with always-stabilizing control
-            from trajectory.nominal_planner import linearize_at_point, compute_lqr_gain
-
             # Update P from SDP result
             self.P = result.P
 
-            # Design K via LQR at next segment's operating point
-            A, B = linearize_at_point(self.twin, self.x_nom[next_segment_start], self.u_nom[next_segment_start])
-            Q = np.diag([500.0, 500.0, 100.0, 100.0])
-            R = np.eye(self.m) * 0.1
-            try:
-                K_lqr = compute_lqr_gain(A, B, Q, R)
-                self.K = -K_lqr  # Negate for our control convention
-            except Exception:
-                pass  # Keep current K if LQR fails
+            # Try to use K from SDP first if it's stabilizing
+            K_sdp = result.K
+            sdp_stable = self._check_stability(K_sdp, next_segment_start)
 
-            # Update L for consistency: L = K @ P
-            self.L_mat = self.K @ self.P
+            if sdp_stable and np.linalg.norm(K_sdp) > 0.1:
+                # Use SDP's K - it's non-trivial and stabilizing
+                self.K = K_sdp
+                self.L_mat = result.L
+            else:
+                # Fall back to LQR if SDP's K is trivial or unstable
+                from trajectory.nominal_planner import linearize_at_point, compute_lqr_gain
+
+                A, B = linearize_at_point(self.twin, self.x_nom[next_segment_start], self.u_nom[next_segment_start])
+                Q = np.diag([500.0, 500.0, 100.0, 100.0])
+                R = np.eye(self.m) * 0.1
+                try:
+                    K_lqr = compute_lqr_gain(A, B, Q, R)
+                    self.K = -K_lqr  # Negate for our control convention
+                except Exception:
+                    pass  # Keep current K if LQR fails
+
+                # Update L for consistency: L = K @ P
+                self.L_mat = self.K @ self.P
 
             self.P_history.append(self.P.copy())
             self.K_history.append(self.K.copy())

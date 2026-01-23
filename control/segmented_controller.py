@@ -61,6 +61,8 @@ class SegmentedFunnelController:
         C: float = 3.64,
         gamma: float = 0.034,
         L_r: float = 0.074,
+        gain_ramp_steps: int = 30,
+        gain_min_scale: float = 0.15,
     ):
         """
         Initialize segmented controller.
@@ -77,6 +79,8 @@ class SegmentedFunnelController:
             C: Jacobian variation rate
             gamma: Plant-twin mismatch bound
             L_r: Second-order remainder constant
+            gain_ramp_steps: Number of timesteps to ramp up gain (default 30)
+            gain_min_scale: Initial gain scale factor (default 0.15)
         """
         self.twin = twin
         self.x_nom = np.asarray(x_nom)
@@ -96,6 +100,10 @@ class SegmentedFunnelController:
         self.gamma = gamma
         self.L_r = L_r
         self.T_tilde = 2 * T - L - 1
+
+        # Gain scheduling for smooth startup
+        self.gain_ramp_steps = gain_ramp_steps
+        self.gain_min_scale = gain_min_scale
 
         # Segment manager
         self.segment_manager = SegmentManager(T, L, self.n, self.m)
@@ -167,8 +175,17 @@ class SegmentedFunnelController:
         # Store deviation
         self.eta_log[k] = eta_k.copy()
 
-        # Feedback control
-        u_fb = self.K @ eta_k
+        # Apply gain scheduling for smooth startup
+        # Smoothly ramp gain from gain_min_scale to 1.0 over gain_ramp_steps
+        if k < self.gain_ramp_steps:
+            # Smooth cosine ramp: starts slow, accelerates, then slows
+            t = k / self.gain_ramp_steps
+            gain_scale = self.gain_min_scale + (1.0 - self.gain_min_scale) * (1 - np.cos(np.pi * t)) / 2
+        else:
+            gain_scale = 1.0
+
+        # Feedback control with gain scheduling
+        u_fb = gain_scale * (self.K @ eta_k)
 
         # Nominal input
         u_nom_k = self.u_nom[k]

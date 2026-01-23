@@ -19,4 +19,5 @@ from .beta_computation import (
     compute_beta_for_segment,
     compute_individual_disturbance_bound,
     compute_beta_decomposition,
+    regularize_beta,
 )

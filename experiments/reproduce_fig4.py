@@ -138,6 +138,7 @@ def main(save_dir: str = "outputs"):
         x_plant=outputs.x_plant_full,
         x_baseline=x_baseline,
         funnel_envelopes=funnel_envelopes,
+        funnel_envelopes_raw=funnel_envelopes_raw,
         funnel_segments=funnel_segments,
         state_bounds=state_bounds_list,
         save_path=str(out_path),

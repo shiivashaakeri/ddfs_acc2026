@@ -19,16 +19,23 @@ def plot_figure4(
     funnel_envelopes: list[np.ndarray] | None,
     funnel_segments: list[tuple[int, int]] | None,
     state_bounds: list[tuple[float, float]],
+    funnel_envelopes_raw: list[np.ndarray] | None = None,
     save_path: str | None = None,
 ):
-    """4-panel plot (q1, q2, dq1, dq2). funnel_envelopes is per-segment shape matrices."""
+    """4-panel plot (q1, q2, dq1, dq2).
+
+    funnel_envelopes : per-segment shape matrices used for the gray-fill band
+        (these are the inflated funnels that contain the plant trajectory).
+    funnel_envelopes_raw : optional per-segment SDP-certified funnels before
+        inflation; rendered as a thin dashed border on each segment so the
+        plant-vs-LS gap is visible.
+    """
     labels = [r"$q_1$ (rad)", r"$q_2$ (rad)", r"$\dot{q}_1$ (rad/s)", r"$\dot{q}_2$ (rad/s)"]
     fig, axes = plt.subplots(2, 2, figsize=(11, 6.5), sharex=True)
     axes = axes.ravel()
 
     for i in range(4):
         ax = axes[i]
-        # Funnel envelopes per segment: ±sqrt(P[i,i]) around nominal
         if funnel_envelopes is not None and funnel_segments is not None:
             lower = np.full(len(t), np.nan)
             upper = np.full(len(t), np.nan)
@@ -37,7 +44,17 @@ def plot_figure4(
                 for k in range(k_lo, min(k_hi, len(t))):
                     lower[k] = x_nom[k, i] - semi
                     upper[k] = x_nom[k, i] + semi
-            ax.fill_between(t, lower, upper, color="gray", alpha=0.25, label="certified funnel")
+            ax.fill_between(t, lower, upper, color="gray", alpha=0.25, label="funnel (containing plant)")
+        if funnel_envelopes_raw is not None and funnel_segments is not None:
+            lower_r = np.full(len(t), np.nan)
+            upper_r = np.full(len(t), np.nan)
+            for (P_shape, (k_lo, k_hi)) in zip(funnel_envelopes_raw, funnel_segments):
+                semi = float(np.sqrt(max(P_shape[i, i], 0.0)))
+                for k in range(k_lo, min(k_hi, len(t))):
+                    lower_r[k] = x_nom[k, i] - semi
+                    upper_r[k] = x_nom[k, i] + semi
+            ax.plot(t, lower_r, color="dimgray", ls="--", lw=0.7, label="SDP-certified (for LS estimate)")
+            ax.plot(t, upper_r, color="dimgray", ls="--", lw=0.7)
         # Feasibility bounds
         lo, hi = state_bounds[i]
         ax.axhline(lo, color="g", ls=":", lw=0.8)
@@ -50,7 +67,7 @@ def plot_figure4(
         ax.grid(True, alpha=0.3)
     axes[2].set_xlabel("time (s)")
     axes[3].set_xlabel("time (s)")
-    axes[0].legend(loc="best", fontsize=8)
+    axes[0].legend(loc="best", fontsize=7)
     fig.tight_layout()
     if save_path:
         fig.savefig(save_path, dpi=150)

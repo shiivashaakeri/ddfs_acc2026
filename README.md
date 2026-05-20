@@ -56,11 +56,17 @@ python -m pytest tests/ -v
 | Algorithm 1 online loop | `control/segmented.run_algorithm_1` |
 | Fig. 4 case study | `experiments/reproduce_fig4.py` |
 
-## Two principled deviations from the paper (worth knowing)
+## Three principled deviations from the paper (worth knowing)
 
 1. **Convention**: the paper's Def. 4 says E(P) = {η: η^T P η ≤ 1} (V-matrix), but the proof's `A_cl P A_cl^T ⪯ αP` and the SDP's "max log det P → min volume" are only mutually consistent under the **shape-matrix** convention `V(η) = η^T P^{-1} η`. The code uses shape convention throughout; this is the only consistent reading.
 
 2. **Certainty-equivalence relaxation (`beta_mode='ce'`)**: the paper's exact matrix S-lemma reduction over Σ ⊕ Σ^Δ is numerically infeasible on the 2-DoF arm — the worst-case bounds C·T̃ and β are too conservative relative to the actual quantities. We verified the LMI is **correct** on stable LTI test cases (eigvals up to 1.05, β small, C·T̃ ≤ 0.1), but the 4D arm with eigvals near 1.04 and the paper's nominal-formula bounds cannot satisfy the LMI. The code defaults to the "ce" mode: LS-estimate (A_hat, B_hat) per segment, feed a synthetic probe that pins them into Σ exactly (β = 10⁻¹⁰), and disable Σ^Δ. The LMI then certifies a controller for the LS-estimated system, which empirically also stabilizes the true plant. The paper's exact `beta_mode='paper'` is preserved as a code path for users with smoother plants.
+
+3. **Initial controller (P_0, K_0) and per-segment funnel inflation**: the paper assumes K_0 is given (Assumption 5). We build it explicitly:
+   - K_0 = −DLQR(twin Jacobian at start), with Q = diag(1, 1, 0.1, 0.1), R = I.
+   - P_0 from a small SDP that fixes K_0 and finds the smallest invariant funnel containing η_0 under the twin's closed-loop α-Lyapunov LMI plus the Schur η_0-containment LMI. The state-feasibility constraint P_0 ⪯ P_max is dropped if it makes the SDP infeasible — η_0 is too large to fit inside the box under the LQR-preferred Lyapunov metric. The plant's actual trajectory still respects the box thanks to input clipping.
+
+   For Fig. 4 visualisation we additionally inflate each segment's funnel by the tightest scalar c ≥ 1 that makes E(c·P_i) contain the segment's observed plant trajectory. Scaling P preserves the α-Lyapunov decay (the LMI is homogeneous in P), so the inflated funnel is still a valid invariant set under the twin model — the inflation factor exposes the plant-vs-LS gap during transients. For the paper case study: c = 2.38 (seg 0), 3.45 (seg 1), 1.00 (segs 2–5).
 
 ## Case-study constants (from Section VI)
 

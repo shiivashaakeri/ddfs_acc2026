@@ -105,7 +105,9 @@ def main(save_dir: str = "outputs"):
     x_baseline = run_twin_only_baseline(plant.step, x_plant_0, nom.u_nom)
 
     # ---- Plot
-    funnel_envelopes = [P_max_segs[0]] + [d.P for d in outputs.sdp_designs]
+    # Use P_0 from the initial-controller design (not the feasibility envelope)
+    # so the segment-0 funnel reflects the actual certified region.
+    funnel_envelopes = [P0] + [d.P for d in outputs.sdp_designs]
     funnel_segments = [(i * T, (i + 1) * T) for i in range(n_segments)]
     t = np.arange(N + 1) * dt
     state_bounds_list = [STATE_BOUNDS[k] for k in ["q1", "q2", "dq1", "dq2"]]

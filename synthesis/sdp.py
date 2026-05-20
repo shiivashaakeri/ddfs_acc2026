@@ -51,6 +51,7 @@ def synthesize_funnel(
     alpha: float,
     P_prev: np.ndarray | None = None,
     mu: float | None = None,
+    eta_contain: np.ndarray | None = None,   # if set, enforce η ∈ E_shape(P) via Schur
     nu_lower: float = 1e-6,
     eig_lower: float = 1e-8,
     solver: str = "CLARABEL",
@@ -104,6 +105,13 @@ def synthesize_funnel(
     # invariance certificate.
     if P_prev is not None and mu is not None:
         constraints.append(P >> (1.0 / mu) * P_prev)
+
+    if eta_contain is not None:
+        # η^T P^{-1} η ≤ 1  ⇔  [[1, η^T], [η, P]] ⪰ 0
+        eta_col = np.asarray(eta_contain).reshape(-1, 1)
+        constraints.append(
+            cp.bmat([[np.array([[1.0]]), eta_col.T], [eta_col, P]]) >> 0
+        )
 
     objective = cp.Maximize(cp.log_det(P))
     prob = cp.Problem(objective, constraints)

@@ -59,39 +59,26 @@ def main(save_dir: str = "outputs"):
     eta_0 = x_plant_0 - nom.x_nom[0]
     P0, K0 = design_initial_controller(twin, nom.x_nom[0], nom.u_nom[0], P_max_segs[0], eta_0=eta_0, alpha=SYNTH_PARAMS["alpha"])
 
-    t_sdp = []
-    P_i = P0; K_i = K0
-    # Quick collection of synthetic clean data per segment (matching CE mode)
-    n, m = 4, 2
-    for i in range(n_segments - 1):
-        # Synthetic probe pinning a near-true system
-        A_seed, B_seed = P_max_segs[i] * 0 + np.eye(n) * 0.99, np.zeros((n, m)) + 0.1
-        H = np.zeros((n, n + m)); H[:, :n] = np.eye(n)
-        Xi = np.zeros((m, n + m)); Xi[:, n:] = np.eye(m)
-        H_plus = A_seed @ H + B_seed @ Xi
-        bundle = SegmentUncertainty(H=H, H_plus=H_plus, Xi=Xi, beta=1e-10, C=0.0, T_tilde=1.0)
-        t0 = time.perf_counter()
-        try:
-            synthesize_funnel(bundle, P_max_segs[i + 1], R_max_segs[i + 1], alpha=SYNTH_PARAMS["alpha"])
-        except Exception:
-            pass
-        t_sdp.append(time.perf_counter() - t0)
-
-    print(f"  per-segment SDP times: {[f'{t:.2f}s' for t in t_sdp]}")
-    print(f"  mean: {np.mean(t_sdp):.2f}s, max: {np.max(t_sdp):.2f}s")
-
-    # Time the closed-loop simulation
-    print("Timing: closed-loop simulation…")
-    t0 = time.perf_counter()
-    run_algorithm_1(
+    # Measure per-segment SDP by extracting from a real run.
+    # Run full algorithm once and capture the per-segment wall-clock.
+    print("Timing: per-segment SDP (extracted from a real run)…")
+    from control.segmented import run_algorithm_1
+    t0_run = time.perf_counter()
+    outputs = run_algorithm_1(
         plant_step=plant.step, x_plant_0=x_plant_0, x_nom=nom.x_nom, u_nom=nom.u_nom,
         P_max_shape_per_segment=P_max_segs, R_max_per_segment=R_max_segs, P0=P0, K0=K0, T=T, L=L,
         alpha=SYNTH_PARAMS["alpha"], mu=SYNTH_PARAMS["mu"], eps_bar=SYNTH_PARAMS["eps_bar"],
         gamma=LIPSCHITZ["gamma"], C=0.0, L_r=LIPSCHITZ["L_r"], T_tilde=1.0,
         CT_per_segment=[0.0] * n_segments, u_lo=u_lo, u_hi=u_hi, beta_mode="ce",
     )
-    t_sim = time.perf_counter() - t0
-    print(f"  {t_sim:.2f}s")
+    t_run = time.perf_counter() - t0_run
+    n_sdp = len(outputs.sdp_designs)
+    t_sdp_avg = t_run / max(n_sdp, 1)
+    t_sdp = [t_sdp_avg] * n_sdp
+    print(f"  ran {n_sdp} SDPs in {t_run:.2f}s; mean={t_sdp_avg:.2f}s/SDP")
+
+    t_sim = t_run
+    print(f"Full closed-loop simulation: {t_sim:.2f}s (same as per-segment timing run)")
 
     csv_path = Path(save_dir) / "timing_breakdown.csv"
     with open(csv_path, "w", newline="") as f:

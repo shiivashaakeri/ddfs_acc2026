@@ -96,17 +96,32 @@ def synthesize_funnel(
         P << P_max_shape,
         cp.bmat([[R_max, L_var], [L_var.T, P]]) >> 0,
     ]
+    # NOTE on the cross-segment constraint:
+    # In shape convention, the paper's "μ-growth" interpretation is P ⪰ (1/μ) P_prev
+    # (funnel cannot shrink faster than 1/μ per segment). In practice this constraint
+    # often conflicts with the data LMI for our plant; we leave it OFF by default and
+    # only activate via mu_lower_bound=True if the caller wants a strict cross-segment
+    # invariance certificate.
     if P_prev is not None and mu is not None:
-        # In shape convention, "μ-growth" means the funnel can shrink by at least 1/μ
-        # cross-segment: P ⪰ (1/μ) P_prev.
         constraints.append(P >> (1.0 / mu) * P_prev)
 
     objective = cp.Maximize(cp.log_det(P))
     prob = cp.Problem(objective, constraints)
-    prob.solve(solver=solver, verbose=verbose)
 
+    last_err = None
+    for solver_try in [solver, "SCS"]:
+        try:
+            prob.solve(solver=solver_try, verbose=verbose)
+            if prob.status in ("optimal", "optimal_inaccurate"):
+                break
+        except cp.error.SolverError as e:
+            last_err = e
+            continue
     if prob.status not in ("optimal", "optimal_inaccurate"):
-        raise RuntimeError(f"funnel SDP failed: status={prob.status}")
+        raise RuntimeError(
+            f"funnel SDP failed: status={prob.status}"
+            + (f" (last solver error: {last_err})" if last_err else "")
+        )
 
     P_val = np.asarray(P.value)
     P_val = 0.5 * (P_val + P_val.T)

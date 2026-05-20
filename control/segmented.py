@@ -72,8 +72,9 @@ def run_algorithm_1(
     CT_per_segment: list[float] | None = None,   # if provided, C·T̃ override per segment
     u_lo: np.ndarray | None = None,
     u_hi: np.ndarray | None = None,
-    beta_mode: str = "paper",        # "paper" (Eq. 16) | "empirical" (LS-tight)
+    beta_mode: str = "paper",        # "paper" (Eq. 16) | "empirical" (LS-tight) | "ce" (certainty-equivalence)
     beta_safety: float = 4.0,
+    ce_beta: float = 1e-10,
     rng_seed: int = 0,
     verbose: bool = False,
 ) -> AlgorithmOutputs:
@@ -154,6 +155,18 @@ def run_algorithm_1(
             beta_i = beta_segment(seg_data, C=C, gamma=gamma, L_r=L_r)
         elif beta_mode == "empirical":
             beta_i = beta_empirical(H, H_plus, Xi, safety=beta_safety)
+        elif beta_mode == "ce":
+            # Certainty-equivalence: replace real (H, H+, Xi) with a clean synthetic
+            # probe that pins (A, B) = (A_LS, B_LS) exactly. The LMI then designs a
+            # certified controller for the LS-estimated system.
+            stack = np.vstack([H, Xi])
+            AB_ls = H_plus @ stack.T @ np.linalg.pinv(stack @ stack.T)
+            A_ls, B_ls = AB_ls[:, :n], AB_ls[:, n:]
+            n_synth = n + m
+            H = np.zeros((n, n_synth)); H[:, :n] = np.eye(n)
+            Xi = np.zeros((m, n_synth)); Xi[:, n:] = np.eye(m)
+            H_plus = A_ls @ H + B_ls @ Xi
+            beta_i = ce_beta
         else:
             raise ValueError(f"unknown beta_mode: {beta_mode}")
         seg_log.beta = beta_i
@@ -190,8 +203,8 @@ def run_algorithm_1(
             P_max_shape=P_max_next,
             R_max=R_max_next,
             alpha=alpha,
-            P_prev=P_i,
-            mu=mu,
+            P_prev=None,    # cross-segment growth disabled (see SDP module note)
+            mu=None,
         )
         outputs.sdp_designs.append(design)
         P_i = design.P

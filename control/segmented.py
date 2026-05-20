@@ -69,6 +69,7 @@ def run_algorithm_1(
     C: float,
     L_r: float,
     T_tilde: float,
+    CT_per_segment: list[float] | None = None,   # if provided, C·T̃ override per segment
     u_lo: np.ndarray | None = None,
     u_hi: np.ndarray | None = None,
     beta_mode: str = "paper",        # "paper" (Eq. 16) | "empirical" (LS-tight)
@@ -170,10 +171,18 @@ def run_algorithm_1(
         if i + 1 >= n_segments:
             break  # last segment; no more design needed
 
-        bundle = SegmentUncertainty(
-            H=H, H_plus=H_plus, Xi=Xi,
-            beta=beta_i, C=C, T_tilde=T_tilde,
-        )
+        if CT_per_segment is not None:
+            # Empirical override: bundle uses C=CT_value, T_tilde=1 so the product
+            # C * T_tilde matches the empirical Jacobian variation.
+            bundle = SegmentUncertainty(
+                H=H, H_plus=H_plus, Xi=Xi,
+                beta=beta_i, C=CT_per_segment[i], T_tilde=1.0,
+            )
+        else:
+            bundle = SegmentUncertainty(
+                H=H, H_plus=H_plus, Xi=Xi,
+                beta=beta_i, C=C, T_tilde=T_tilde,
+            )
         P_max_next = P_max_shape_per_segment[i + 1]
         R_max_next = R_max_per_segment[i + 1]
         design = synthesize_funnel(

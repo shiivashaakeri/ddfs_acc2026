@@ -20,7 +20,7 @@ from typing import Callable
 
 import numpy as np
 
-from linearization.jacobians import jacobians_discrete
+from linearization.jacobians import jacobians_discrete, jacobians_along_trajectory
 
 
 def estimate_gamma(
@@ -97,3 +97,26 @@ def estimate_L_r(
             lin = f0 + A0 @ dx + B0 @ du
             L = max(L, np.linalg.norm(f1 - lin) / (z_norm ** 2))
     return float(L)
+
+
+def estimate_jacobian_variation_bound(
+    plant_step: Callable,
+    x_nom: np.ndarray,
+    u_nom: np.ndarray,
+    k_lo: int,
+    k_hi: int,
+    safety: float = 2.0,
+) -> float:
+    """Empirical bound on spectral norm of [A(k) - A(s)  B(k) - B(s)] over k, s in [k_lo, k_hi).
+
+    This is the actual Jacobian variation along the nominal -- much tighter than the
+    Lemma 2 / Lemma 4 worst-case L_J * v * |k-s| in practice. Returns safety * max,
+    so the true variation is bounded by the return value.
+    """
+    A_seq, B_seq = jacobians_along_trajectory(plant_step, x_nom[k_lo:k_hi + 1], u_nom[k_lo:k_hi])
+    max_var = 0.0
+    for i in range(A_seq.shape[0]):
+        for j in range(i + 1, A_seq.shape[0]):
+            diff = np.hstack([A_seq[i] - A_seq[j], B_seq[i] - B_seq[j]])
+            max_var = max(max_var, float(np.linalg.norm(diff, 2)))
+    return safety * max_var

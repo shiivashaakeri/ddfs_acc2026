@@ -1,3 +1,2 @@
-# visualization module
-from .trajectory_plots import plot_tracking_results
-from .funnel_plots import plot_ellipsoid_2d, plot_funnel_sequence
+from .figure4 import plot_figure4
+from .trajectories import plot_states_inputs

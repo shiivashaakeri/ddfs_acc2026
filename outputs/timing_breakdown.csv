@@ -1,2 +1,5 @@
-data_matrix_construction,beta_computation,ellipsoid_bounds,initial_controller,sdp_solve,control_computation,total_per_segment
-0.00011056939999889436,0.00021892480000360593,3.908660001457065e-05,0.0022548286000073857,7.830096637333327,1.5553849991079004e-06,7.830465218133344
+stage,wall_time_s
+iLQR_nominal_planning,53.4492816840002
+mean_per_segment_sdp,13.519678750799903
+max_per_segment_sdp,13.519678750799903
+full_closed_loop_sim,67.59839375399952

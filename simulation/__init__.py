@@ -1,3 +1,1 @@
-# simulation module
-from .closed_loop import run_simulation
-from .baseline import run_baseline
+from .baseline import run_twin_only_baseline

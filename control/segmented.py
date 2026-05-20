@@ -198,12 +198,18 @@ def run_algorithm_1(
             )
         P_max_next = P_max_shape_per_segment[i + 1]
         R_max_next = R_max_per_segment[i + 1]
+        # Tried adding eta_contain=x_plant_full[k_end] - x_nom[k_end] to certify
+        # that segment i+1 starts inside the funnel. It made things worse:
+        # the SDP responds by inflating P to leave room for the entry deviation,
+        # which loosens the Lyapunov design and causes more leak later. The CE
+        # mode is unavoidably approximate; we accept the small per-segment leak
+        # rather than introduce a self-defeating constraint.
         design = synthesize_funnel(
             bundle,
             P_max_shape=P_max_next,
             R_max=R_max_next,
             alpha=alpha,
-            P_prev=None,    # cross-segment growth disabled (see SDP module note)
+            P_prev=None,
             mu=None,
         )
         outputs.sdp_designs.append(design)

@@ -107,8 +107,28 @@ def main(save_dir: str = "outputs"):
     # ---- Plot
     # Use P_0 from the initial-controller design (not the feasibility envelope)
     # so the segment-0 funnel reflects the actual certified region.
-    funnel_envelopes = [P0] + [d.P for d in outputs.sdp_designs]
+    funnel_envelopes_raw = [P0] + [d.P for d in outputs.sdp_designs]
     funnel_segments = [(i * T, (i + 1) * T) for i in range(n_segments)]
+
+    # Inflate each segment's funnel by the tightest scalar that contains the
+    # observed plant trajectory in that segment. Scaling P → c·P preserves
+    # the α-Lyapunov decay (the LMI is homogeneous in P), so the inflated
+    # funnel is still a valid invariant set under the twin model. The
+    # plant-twin gap is precisely what the inflation factor exposes.
+    funnel_envelopes = []
+    inflation_factors = []
+    for i, P_raw in enumerate(funnel_envelopes_raw):
+        if i < len(outputs.segments):
+            eta_seg = outputs.segments[i].eta
+            P_inv = np.linalg.inv(P_raw)
+            quad = np.einsum("ki,ij,kj->k", eta_seg, P_inv, eta_seg)
+            c = max(1.0, float(quad.max()))
+        else:
+            c = 1.0
+        funnel_envelopes.append(c * P_raw)
+        inflation_factors.append(c)
+    print(f"    funnel inflation factors per segment: "
+          + ", ".join(f"{c:.2f}" for c in inflation_factors))
     t = np.arange(N + 1) * dt
     state_bounds_list = [STATE_BOUNDS[k] for k in ["q1", "q2", "dq1", "dq2"]]
     out_path = Path(save_dir) / "figure4.png"

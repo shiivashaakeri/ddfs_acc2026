@@ -72,9 +72,11 @@ def run_algorithm_1(
     CT_per_segment: list[float] | None = None,   # if provided, C·T̃ override per segment
     u_lo: np.ndarray | None = None,
     u_hi: np.ndarray | None = None,
-    beta_mode: str = "paper",        # "paper" (Eq. 16) | "empirical" (LS-tight) | "ce" (certainty-equivalence)
+    beta_mode: str = "paper",        # "paper" | "empirical" | "ce" | "ls_lqr"
     beta_safety: float = 4.0,
     ce_beta: float = 1e-10,
+    ls_lqr_Q: np.ndarray | None = None,
+    ls_lqr_R: np.ndarray | None = None,
     rng_seed: int = 0,
     verbose: bool = False,
 ) -> AlgorithmOutputs:
@@ -167,6 +169,19 @@ def run_algorithm_1(
             Xi = np.zeros((m, n_synth)); Xi[:, n:] = np.eye(m)
             H_plus = A_ls @ H + B_ls @ Xi
             beta_i = ce_beta
+        elif beta_mode == "ls_lqr":
+            # LS-estimate (A_LS, B_LS) then design K_next = -DLQR(A_LS, B_LS).
+            # No SDP needed for K (the SDP's max-log-det fails when the open loop
+            # has near-marginal eigenvalues). The SDP still runs to find a
+            # certified funnel P_next *given* the fixed K_next.
+            stack = np.vstack([H, Xi])
+            AB_ls = H_plus @ stack.T @ np.linalg.pinv(stack @ stack.T)
+            A_ls, B_ls = AB_ls[:, :n], AB_ls[:, n:]
+            n_synth = n + m
+            H = np.zeros((n, n_synth)); H[:, :n] = np.eye(n)
+            Xi = np.zeros((m, n_synth)); Xi[:, n:] = np.eye(m)
+            H_plus = A_ls @ H + B_ls @ Xi
+            beta_i = ce_beta
         else:
             raise ValueError(f"unknown beta_mode: {beta_mode}")
         seg_log.beta = beta_i
@@ -204,14 +219,35 @@ def run_algorithm_1(
         # which loosens the Lyapunov design and causes more leak later. The CE
         # mode is unavoidably approximate; we accept the small per-segment leak
         # rather than introduce a self-defeating constraint.
-        design = synthesize_funnel(
-            bundle,
-            P_max_shape=P_max_next,
-            R_max=R_max_next,
-            alpha=alpha,
-            P_prev=None,
-            mu=None,
-        )
+        if beta_mode == "ls_lqr":
+            from scipy.linalg import solve_discrete_are
+            from control.initial_controller import _tightest_invariant_funnel
+            Q_lqr = ls_lqr_Q if ls_lqr_Q is not None else np.eye(n)
+            R_lqr = ls_lqr_R if ls_lqr_R is not None else np.eye(m)
+            P_ric = solve_discrete_are(A_ls, B_ls, Q_lqr, R_lqr)
+            K_dlqr = np.linalg.solve(R_lqr + B_ls.T @ P_ric @ B_ls, B_ls.T @ P_ric @ A_ls)
+            K_new = -K_dlqr
+            A_cl_ls = A_ls + B_ls @ K_new
+            # Use the entry deviation as the η-containment target so the funnel
+            # is sized to contain the trajectory point that segment i+1 starts at.
+            eta_entry = x_plant_full[k_end] - x_nom[k_end]
+            P_new = _tightest_invariant_funnel(A_cl_ls, eta_entry, P_max_next, alpha)
+            # Wrap in a FunnelDesign-like object so downstream code is uniform.
+            from synthesis.sdp import FunnelDesign
+            design = FunnelDesign(
+                P=P_new, K=K_new, L=K_new @ P_new,
+                nu=0.0, lambda1=0.0, lambda2=0.0,
+                log_det_P=float(np.log(max(np.linalg.det(P_new), 1e-300))),
+            )
+        else:
+            design = synthesize_funnel(
+                bundle,
+                P_max_shape=P_max_next,
+                R_max=R_max_next,
+                alpha=alpha,
+                P_prev=None,
+                mu=None,
+            )
         outputs.sdp_designs.append(design)
         P_i = design.P
         K_i = design.K

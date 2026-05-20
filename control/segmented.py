@@ -72,11 +72,13 @@ def run_algorithm_1(
     CT_per_segment: list[float] | None = None,   # if provided, C·T̃ override per segment
     u_lo: np.ndarray | None = None,
     u_hi: np.ndarray | None = None,
-    beta_mode: str = "paper",        # "paper" | "empirical" | "ce" | "ls_lqr"
+    beta_mode: str = "paper",        # "paper" | "empirical" | "ce" | "ls_lqr" | "prob"
     beta_safety: float = 4.0,
     ce_beta: float = 1e-10,
     ls_lqr_Q: np.ndarray | None = None,
     ls_lqr_R: np.ndarray | None = None,
+    prob_safety: float = 1.5,       # concentration-motivated safety on β
+    prob_P_lower: np.ndarray | None = None,  # explicit P-lower-bound for `prob`
     rng_seed: int = 0,
     verbose: bool = False,
 ) -> AlgorithmOutputs:
@@ -169,6 +171,26 @@ def run_algorithm_1(
             Xi = np.zeros((m, n_synth)); Xi[:, n:] = np.eye(m)
             H_plus = A_ls @ H + B_ls @ Xi
             beta_i = ce_beta
+        elif beta_mode == "prob":
+            # Concentration-motivated β with a synthetic-probe data structure.
+            # This is `ce` plus a non-zero β that reflects the LS-residual
+            # magnitude inflated by a concentration safety factor.
+            # Using the SYNTHETIC probe (well-conditioned identity-stacked
+            # data) instead of the real data keeps Σ spherical, sidestepping
+            # the H-condition-number problem that makes real-data Σ elongated.
+            stack = np.vstack([H, Xi])
+            AB_ls = H_plus @ stack.T @ np.linalg.pinv(stack @ stack.T)
+            A_ls, B_ls = AB_ls[:, :n], AB_ls[:, n:]
+            W_ls = H_plus - AB_ls @ stack
+            ls_energy = float(np.linalg.norm(W_ls) ** 2)
+            # Overfitting correction: ||W_true||² / ||W_LS||² ≈ L / (L - (n+m)) under Gaussian model.
+            L_eff = max(H.shape[1] - (n + m), 1)
+            beta_i = prob_safety * (H.shape[1] / L_eff) * ls_energy
+            # Replace data matrices with synthetic probe pinning (A_LS, B_LS)
+            n_synth = n + m
+            H = np.zeros((n, n_synth)); H[:, :n] = np.eye(n)
+            Xi = np.zeros((m, n_synth)); Xi[:, n:] = np.eye(m)
+            H_plus = A_ls @ H + B_ls @ Xi
         elif beta_mode == "ls_lqr":
             # LS-estimate (A_LS, B_LS) then design K_next = -DLQR(A_LS, B_LS).
             # No SDP needed for K (the SDP's max-log-det fails when the open loop
@@ -247,6 +269,7 @@ def run_algorithm_1(
                 alpha=alpha,
                 P_prev=None,
                 mu=None,
+                P_lower_shape=prob_P_lower if beta_mode == "prob" else None,
             )
         outputs.sdp_designs.append(design)
         P_i = design.P

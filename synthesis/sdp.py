@@ -52,6 +52,7 @@ def synthesize_funnel(
     P_prev: np.ndarray | None = None,
     mu: float | None = None,
     eta_contain: np.ndarray | None = None,   # if set, enforce η ∈ E_shape(P) via Schur
+    P_lower_shape: np.ndarray | None = None,  # explicit P ⪰ P_lower (prevents degenerate K=0)
     nu_lower: float = 1e-6,
     eig_lower: float = 1e-8,
     solver: str = "CLARABEL",
@@ -112,6 +113,11 @@ def synthesize_funnel(
         constraints.append(
             cp.bmat([[np.array([[1.0]]), eta_col.T], [eta_col, P]]) >> 0
         )
+
+    if P_lower_shape is not None:
+        # P ⪰ P_lower_shape  -- prevents the degenerate P → εI collapse that
+        # makes the SDP report "feasible" with K → 0 when β is too large.
+        constraints.append(P >> P_lower_shape)
 
     objective = cp.Maximize(cp.log_det(P))
     prob = cp.Problem(objective, constraints)

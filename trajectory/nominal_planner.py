@@ -1,208 +1,194 @@
-"""
-Nominal Trajectory Planning.
+"""Nominal trajectory planning on the digital twin.
 
-Generate LQR-based nominal trajectory on the digital twin.
+Section VI: "A twin-based LQR plans a nominal from x̂(0) to x_goal with u_goal."
+For the 2-DoF arm, the goal is far from the start (~213° shoulder swing) and
+the input is bounded, so plain LQR-about-the-goal does not yield a feasible
+nominal. We use iterative LQR (iLQR) on the twin dynamics — the standard
+nonlinear extension of LQR that produces a locally-optimal feasible nominal
+trajectory satisfying Assumption 3.
 
-Approach:
-1. Linearize twin at goal (x_goal, u_goal)
-2. Compute infinite-horizon LQR gain K_lqr
-3. Simulate twin from x_nom_0 using u = u_goal + K_lqr(x - x_goal)
-4. Store {x_nom(k)}_{k=0}^N and {u_nom(k)}_{k=0}^{N-1}
+The returned NominalTrajectory carries both the state sequence (rolled on
+the twin) and the open-loop input sequence.
 """
 
 from __future__ import annotations
 
-from typing import Tuple
+from dataclasses import dataclass
 
 import numpy as np
-import scipy.linalg
+
+from dynamics.digital_twin import create_twin
+from dynamics.discretization import DiscreteSystem
+from linearization.jacobians import jacobians_discrete
 
 
-def linearize_at_point(
-    system, x: np.ndarray, u: np.ndarray, eps: float = 1e-6
-) -> Tuple[np.ndarray, np.ndarray]:
+@dataclass
+class NominalTrajectory:
+    x_nom: np.ndarray  # (N+1, n)
+    u_nom: np.ndarray  # (N, m)
+    x_goal: np.ndarray
+    u_goal: np.ndarray
+
+    @property
+    def horizon(self) -> int:
+        return self.u_nom.shape[0]
+
+    def increment_bound(self) -> float:
+        """v in Assumption 3: max increment of (x̂_nom, û_nom) over k."""
+        z = np.hstack([self.x_nom[:-1], self.u_nom])
+        return float(np.max(np.linalg.norm(np.diff(z, axis=0), axis=1)))
+
+
+def _rollout(step, x0, u_seq):
+    x = np.zeros((u_seq.shape[0] + 1, x0.size))
+    x[0] = x0
+    for k in range(u_seq.shape[0]):
+        x[k + 1] = step(x[k], u_seq[k])
+    return x
+
+
+def _quadratic_cost(x_seq, u_seq, x_goal, u_goal, Q, R, Qf):
+    e_x = x_seq[:-1] - x_goal
+    e_u = u_seq - u_goal
+    stage = np.einsum("ki,ij,kj->", e_x, Q, e_x) + np.einsum("ki,ij,kj->", e_u, R, e_u)
+    terminal = (x_seq[-1] - x_goal) @ Qf @ (x_seq[-1] - x_goal)
+    return 0.5 * (stage + terminal)
+
+
+def ilqr(
+    step,
+    x0: np.ndarray,
+    u_init: np.ndarray,
+    x_goal: np.ndarray,
+    u_goal: np.ndarray,
+    Q: np.ndarray,
+    R: np.ndarray,
+    Qf: np.ndarray,
+    u_lo: np.ndarray | None = None,
+    u_hi: np.ndarray | None = None,
+    max_iter: int = 80,
+    tol: float = 1e-6,
+    reg_init: float = 1e-3,
+    reg_max: float = 1e6,
+    verbose: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Iterative LQR with Levenberg-style regularization and line search.
+
+    Returns (x_seq, u_seq) of shapes (N+1, n) and (N, m).
+    Box constraints on u are enforced by clamping the line-searched update;
+    this is the standard simple iLQR-with-box approach.
     """
-    Linearize discrete-time system at (x, u) using finite differences.
+    n = x0.size
+    m = u_init.shape[1]
+    N = u_init.shape[0]
 
-    Args:
-        system: DiscreteSystem with step(x, u) method
-        x: State linearization point (n,)
-        u: Input linearization point (m,)
-        eps: Finite difference step size
+    u_seq = u_init.copy()
+    x_seq = _rollout(step, x0, u_seq)
+    if u_lo is not None and u_hi is not None:
+        u_seq = np.clip(u_seq, u_lo, u_hi)
+        x_seq = _rollout(step, x0, u_seq)
+    J = _quadratic_cost(x_seq, u_seq, x_goal, u_goal, Q, R, Qf)
+    reg = reg_init
 
-    Returns:
-        A: (n, n) State Jacobian ∂f/∂x
-        B: (n, m) Input Jacobian ∂f/∂u
-    """
-    x = np.asarray(x, dtype=float)
-    u = np.asarray(u, dtype=float)
-    n = len(x)
-    m = len(u)
+    for it in range(max_iter):
+        # ---- Backward pass: compute feedforward k_seq and feedback K_seq.
+        Vx = Qf @ (x_seq[-1] - x_goal)
+        Vxx = Qf.copy()
+        k_seq = np.zeros((N, m))
+        K_seq = np.zeros((N, m, n))
+        backward_ok = True
+        for t in reversed(range(N)):
+            A, B = jacobians_discrete(step, x_seq[t], u_seq[t])
+            ex = x_seq[t] - x_goal
+            eu = u_seq[t] - u_goal
+            Qx = Q @ ex + A.T @ Vx
+            Qu = R @ eu + B.T @ Vx
+            Qxx = Q + A.T @ Vxx @ A
+            Quu = R + B.T @ Vxx @ B + reg * np.eye(m)
+            Qux = B.T @ Vxx @ A
+            try:
+                L_chol = np.linalg.cholesky(Quu)
+            except np.linalg.LinAlgError:
+                backward_ok = False
+                break
+            inv_Quu = np.linalg.inv(Quu)
+            k_t = -inv_Quu @ Qu
+            K_t = -inv_Quu @ Qux
+            k_seq[t] = k_t
+            K_seq[t] = K_t
+            Vx = Qx + K_t.T @ Quu @ k_t + K_t.T @ Qu + Qux.T @ k_t
+            Vxx = Qxx + K_t.T @ Quu @ K_t + K_t.T @ Qux + Qux.T @ K_t
+            Vxx = 0.5 * (Vxx + Vxx.T)
 
-    # Compute A = ∂f/∂x using central differences
-    A = np.zeros((n, n))
-    for i in range(n):
-        x_plus = x.copy()
-        x_plus[i] += eps
-        x_minus = x.copy()
-        x_minus[i] -= eps
-        A[:, i] = (system.step(x_plus, u) - system.step(x_minus, u)) / (2 * eps)
+        if not backward_ok:
+            reg = min(reg * 10, reg_max)
+            if verbose:
+                print(f"iLQR it {it}: backward pass failed, reg -> {reg:.1e}")
+            if reg >= reg_max:
+                break
+            continue
 
-    # Compute B = ∂f/∂u using central differences
-    B = np.zeros((n, m))
-    for j in range(m):
-        u_plus = u.copy()
-        u_plus[j] += eps
-        u_minus = u.copy()
-        u_minus[j] -= eps
-        B[:, j] = (system.step(x, u_plus) - system.step(x, u_minus)) / (2 * eps)
+        # ---- Forward pass with line search on the feedforward step.
+        accepted = False
+        for alpha in (1.0, 0.5, 0.25, 0.1, 0.05, 0.01):
+            x_new = np.zeros_like(x_seq)
+            u_new = np.zeros_like(u_seq)
+            x_new[0] = x0
+            for t in range(N):
+                u_new[t] = u_seq[t] + alpha * k_seq[t] + K_seq[t] @ (x_new[t] - x_seq[t])
+                if u_lo is not None:
+                    u_new[t] = np.clip(u_new[t], u_lo, u_hi)
+                x_new[t + 1] = step(x_new[t], u_new[t])
+            J_new = _quadratic_cost(x_new, u_new, x_goal, u_goal, Q, R, Qf)
+            if J_new < J:
+                if verbose and it % 10 == 0:
+                    print(f"iLQR it {it}: J {J:.3e} -> {J_new:.3e} (alpha {alpha})")
+                x_seq, u_seq = x_new, u_new
+                if abs(J - J_new) < tol * max(1.0, abs(J)):
+                    return x_seq, u_seq
+                J = J_new
+                reg = max(reg / 2, reg_init)
+                accepted = True
+                break
+        if not accepted:
+            reg = min(reg * 4, reg_max)
+            if verbose:
+                print(f"iLQR it {it}: no improvement, reg -> {reg:.1e}")
+            if reg >= reg_max:
+                break
 
-    return A, B
-
-
-def compute_lqr_gain(
-    A: np.ndarray, B: np.ndarray, Q: np.ndarray, R: np.ndarray
-) -> np.ndarray:
-    """
-    Compute discrete-time LQR gain.
-
-    Solves the discrete-time algebraic Riccati equation and returns
-    the optimal feedback gain K such that u = -K @ (x - x_goal).
-
-    Args:
-        A: (n, n) State matrix
-        B: (n, m) Input matrix
-        Q: (n, n) State cost matrix (positive semi-definite)
-        R: (m, m) Input cost matrix (positive definite)
-
-    Returns:
-        K: (m, n) LQR feedback gain
-    """
-    # Solve discrete-time algebraic Riccati equation using scipy
-    P = scipy.linalg.solve_discrete_are(A, B, Q, R)
-    # Compute LQR gain: K = (R + B'PB)^{-1} B'PA
-    K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)
-    return K
-
-
-def _minimum_jerk_trajectory(x0: np.ndarray, x_goal: np.ndarray, N: int) -> np.ndarray:
-    """
-    Generate minimum-jerk reference trajectory from x0 to x_goal.
-
-    Uses 5th-order polynomial: s(t) = 10t^3 - 15t^4 + 6t^5
-    This ensures smooth acceleration/deceleration with zero velocity
-    and acceleration at endpoints.
-
-    Args:
-        x0: Initial state (n,)
-        x_goal: Goal state (n,)
-        N: Number of time steps
-
-    Returns:
-        x_ref: (N+1, n) Reference trajectory
-    """
-    t = np.linspace(0, 1, N + 1)
-    # Minimum jerk profile: s(t) = 10t^3 - 15t^4 + 6t^5
-    s = 10 * t**3 - 15 * t**4 + 6 * t**5
-    # Interpolate states
-    x_ref = np.outer(1 - s, x0) + np.outer(s, x_goal)
-    return x_ref
+    return x_seq, u_seq
 
 
-def generate_nominal_trajectory(
-    twin,
+def plan_nominal_with_twin_lqr(
     x0: np.ndarray,
     x_goal: np.ndarray,
     u_goal: np.ndarray,
     N: int,
-    Q: np.ndarray = None,
-    R: np.ndarray = None,
-    arm=None,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Generate nominal trajectory on digital twin using two-phase LQR tracking.
-
-    Phase 1 (motion): Time-varying reference tracking with minimum-jerk profile
-    Phase 2 (settling): Fixed-goal LQR to ensure convergence
-
-    This achieves v ≈ 0.215 to match paper's Assumption 3, while ensuring
-    convergence to x_goal with error < 0.001.
-
-    Args:
-        twin: Digital twin DiscreteSystem
-        x0: Initial state (n,)
-        x_goal: Goal state (n,)
-        u_goal: Goal input / equilibrium torques (m,)
-        N: Number of time steps (default 600)
-        Q: State cost matrix (n, n) for settling phase
-        R: Input cost matrix (m, m) for settling phase
-        arm: RobotArm2DoF instance for gravity compensation
-
-    Returns:
-        x_nom: (N+1, n) Nominal state trajectory
-        u_nom: (N, m) Nominal input trajectory
-    """
-    x0 = np.asarray(x0, dtype=float)
-    x_goal = np.asarray(x_goal, dtype=float)
-    u_goal = np.asarray(u_goal, dtype=float)
-
-    n = len(x0)
-    m = len(u_goal)
-
-    # Import arm if not provided
-    if arm is None:
-        from dynamics.robot_arm import RobotArm2DoF
-        from config.params import TWIN_PARAMS
-        arm = RobotArm2DoF(**TWIN_PARAMS)
-
-    # Default LQR weights
+    twin: DiscreteSystem | None = None,
+    Q: np.ndarray | None = None,
+    R: np.ndarray | None = None,
+    Qf: np.ndarray | None = None,
+    u_lo: np.ndarray | None = None,
+    u_hi: np.ndarray | None = None,
+    max_iter: int = 80,
+    verbose: bool = False,
+) -> NominalTrajectory:
+    """Plan a nominal trajectory by running iLQR on the twin dynamics."""
+    if twin is None:
+        twin = create_twin()
+    n = x0.size
+    m = u_goal.size
     if Q is None:
-        Q = np.diag([100.0, 100.0, 10.0, 10.0])
-    else:
-        Q = np.asarray(Q, dtype=float)
-
+        Q = 5.0 * np.eye(n)
     if R is None:
-        R = np.eye(m) * 0.5
-    else:
-        R = np.asarray(R, dtype=float)
+        R = 0.5 * np.eye(m)
+    if Qf is None:
+        Qf = 10.0 * Q
 
-    # Two-phase approach tuned for v ≈ 0.215
-    # Phase 1: 350 steps (3.5s) for motion with reference tracking
-    # Phase 2: remaining steps for settling at goal
-    N1 = min(350, N)  # Motion phase
-    N2 = N - N1       # Settling phase
-
-    # Phase 1: Motion with reference tracking
-    x_ref = _minimum_jerk_trajectory(x0, x_goal, N1)
-    Q_motion = np.diag([50.0, 50.0, 5.0, 5.0])
-    R_motion = np.eye(m) * 0.5
-
-    x_nom = np.zeros((N + 1, n))
-    u_nom = np.zeros((N, m))
-    x_nom[0] = x0
-    x = x0.copy()
-
-    for k in range(N1):
-        # Gravity feedforward at reference
-        u_ref_k = arm.gravity_vector(x_ref[k, :2])
-        # Linearize at reference point
-        A, B = linearize_at_point(twin, x_ref[k], u_ref_k)
-        K = compute_lqr_gain(A, B, Q_motion, R_motion)
-        # Track reference
-        u = u_ref_k - K @ (x - x_ref[k])
-        u_nom[k] = u
-        x = twin.step(x, u)
-        x_nom[k + 1] = x
-
-    # Phase 2: Settling at goal with fixed-point LQR
-    if N2 > 0:
-        A_goal, B_goal = linearize_at_point(twin, x_goal, u_goal)
-        K_goal = compute_lqr_gain(A_goal, B_goal, Q, R)
-
-        for k in range(N1, N):
-            u = u_goal - K_goal @ (x - x_goal)
-            u_nom[k] = u
-            x = twin.step(x, u)
-            x_nom[k + 1] = x
-
-    return x_nom, u_nom
+    u_init = np.tile(u_goal, (N, 1))
+    x_seq, u_seq = ilqr(
+        twin.step, x0, u_init, x_goal, u_goal, Q, R, Qf,
+        u_lo=u_lo, u_hi=u_hi, max_iter=max_iter, verbose=verbose,
+    )
+    return NominalTrajectory(x_nom=x_seq, u_nom=u_seq, x_goal=x_goal, u_goal=u_goal)

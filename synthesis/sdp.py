@@ -46,32 +46,36 @@ class FunnelDesign:
 
 def synthesize_funnel(
     bundle: SegmentUncertainty,
-    P_min: np.ndarray,
+    P_max_shape: np.ndarray,
     R_max: np.ndarray,
     alpha: float,
     P_prev: np.ndarray | None = None,
     mu: float | None = None,
     nu_lower: float = 1e-6,
     eig_lower: float = 1e-8,
-    solver: str = "SCS",
+    solver: str = "CLARABEL",
     verbose: bool = False,
 ) -> FunnelDesign:
-    """Solve Eq. (22) for one segment.
+    """Solve the funnel SDP using the SHAPE-MATRIX convention.
+
+    Convention (matches the paper's proof, fixes the Def-4 inconsistency):
+        - SDP variable P is a positive-definite SHAPE matrix.
+        - The funnel ellipsoid is E_shape(P) = {η : η^T P^{-1} η ≤ 1};
+          semi-axes are √eigenvalues(P).
+        - Lyapunov decay: A_cl P A_cl^T ⪯ α P  ⇔  the LMI from Theorem 1.
 
     Parameters
     ----------
-    bundle
-        SegmentUncertainty with (H, H_plus, Xi, beta, C, T_tilde) from segment i.
-    P_min, R_max
-        Per-segment feasibility envelopes for segment i+1.
+    bundle : SegmentUncertainty
+        (H, H_plus, Xi, beta, C, T_tilde) from segment i.
+    P_max_shape
+        Shape-matrix upper bound for state feasibility: funnel ⊆ box ⇔ P ⪯ P_max_shape.
+    R_max
+        Shape-matrix upper bound for input feasibility (same convention).
     alpha
         Lyapunov decay rate, α ∈ (0, 1).
     P_prev, mu
-        If both supplied, add the cross-segment growth constraint P ⪯ μ P_prev.
-    nu_lower
-        Strict positivity floor for ν.
-    eig_lower
-        Tiny PSD slack to keep ≻ from collapsing to a singular boundary.
+        Cross-segment growth bound: P ⪯ μ P_prev.
     """
     n, m = bundle.n, bundle.m
 
@@ -89,11 +93,13 @@ def synthesize_funnel(
         P >> eig_lower * np.eye(n),
         nu >= nu_lower,
         S_expr - lam1 * N1_tilde - lam2 * N2_tilde >> eig_lower * np.eye(S_expr.shape[0]),
-        P >> P_min,
+        P << P_max_shape,
         cp.bmat([[R_max, L_var], [L_var.T, P]]) >> 0,
     ]
     if P_prev is not None and mu is not None:
-        constraints.append(P << mu * P_prev)
+        # In shape convention, "μ-growth" means the funnel can shrink by at least 1/μ
+        # cross-segment: P ⪰ (1/μ) P_prev.
+        constraints.append(P >> (1.0 / mu) * P_prev)
 
     objective = cp.Maximize(cp.log_det(P))
     prob = cp.Problem(objective, constraints)

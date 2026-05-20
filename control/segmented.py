@@ -17,7 +17,7 @@ from typing import Callable
 
 import numpy as np
 
-from data_driven.beta import beta_segment
+from data_driven.beta import beta_empirical, beta_segment
 from data_driven.data_collection import (
     BoundedExcitation,
     SegmentData,
@@ -56,7 +56,7 @@ def run_algorithm_1(
     x_plant_0: np.ndarray,
     x_nom: np.ndarray,         # (N+1, n)
     u_nom: np.ndarray,         # (N, m)
-    P_min_per_segment: list[np.ndarray],   # length S, envelopes for each segment
+    P_max_shape_per_segment: list[np.ndarray],   # shape-matrix upper bound per segment
     R_max_per_segment: list[np.ndarray],
     P0: np.ndarray,
     K0: np.ndarray,
@@ -71,6 +71,8 @@ def run_algorithm_1(
     T_tilde: float,
     u_lo: np.ndarray | None = None,
     u_hi: np.ndarray | None = None,
+    beta_mode: str = "paper",        # "paper" (Eq. 16) | "empirical" (LS-tight)
+    beta_safety: float = 4.0,
     rng_seed: int = 0,
     verbose: bool = False,
 ) -> AlgorithmOutputs:
@@ -83,7 +85,7 @@ def run_algorithm_1(
     n = x_nom.shape[1]
     m = u_nom.shape[1]
     n_segments = (N + T - 1) // T
-    assert len(P_min_per_segment) >= n_segments
+    assert len(P_max_shape_per_segment) >= n_segments
     assert len(R_max_per_segment) >= n_segments
 
     rng = np.random.default_rng(rng_seed)
@@ -147,7 +149,12 @@ def run_algorithm_1(
         )
         H, H_plus, Xi = assemble_data_matrices(seg_data)
         pe = persistently_exciting(H, Xi)
-        beta_i = beta_segment(seg_data, C=C, gamma=gamma, L_r=L_r)
+        if beta_mode == "paper":
+            beta_i = beta_segment(seg_data, C=C, gamma=gamma, L_r=L_r)
+        elif beta_mode == "empirical":
+            beta_i = beta_empirical(H, H_plus, Xi, safety=beta_safety)
+        else:
+            raise ValueError(f"unknown beta_mode: {beta_mode}")
         seg_log.beta = beta_i
         seg_log.persistently_exciting = pe
         outputs.segments.append(seg_log)
@@ -167,11 +174,11 @@ def run_algorithm_1(
             H=H, H_plus=H_plus, Xi=Xi,
             beta=beta_i, C=C, T_tilde=T_tilde,
         )
-        P_min_next = P_min_per_segment[i + 1]
+        P_max_next = P_max_shape_per_segment[i + 1]
         R_max_next = R_max_per_segment[i + 1]
         design = synthesize_funnel(
             bundle,
-            P_min=P_min_next,
+            P_max_shape=P_max_next,
             R_max=R_max_next,
             alpha=alpha,
             P_prev=P_i,

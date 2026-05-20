@@ -1,4 +1,4 @@
-from .beta import beta_segment
+from .beta import beta_empirical, beta_segment
 from .data_collection import (
     BoundedExcitation,
     SegmentData,
